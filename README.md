@@ -175,3 +175,9 @@ those on first run.
 - **Mackiloha** by PikminGuts92, for the archive and texture tools.
 - **FFmpeg**, for everything audio and video.
 - **Lysix**, for his amazing tutorial.
+
+## License
+
+MIT, in `LICENSE`. The background clips in `venues\` are not mine and are only
+there as a convenience - replace them with your own if you plan to redistribute
+this.
