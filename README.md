@@ -174,3 +174,4 @@ those on first run.
   and for reading and writing the song list.
 - **Mackiloha** by PikminGuts92, for the archive and texture tools.
 - **FFmpeg**, for everything audio and video.
+- **Lysix**, for his amazing tutorial.
