@@ -1,0 +1,6 @@
+# Python 3.8 or newer, on Windows.
+# Tkinter comes with the standard Python installer, so there is nothing to add
+# for the interface itself.
+
+numpy>=1.20        # the PlayStation ADPCM encoder
+pycdlib>=1.11      # writing the ISO
