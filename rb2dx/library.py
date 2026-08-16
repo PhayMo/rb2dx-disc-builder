@@ -15,11 +15,44 @@ import json
 import os
 import re
 
-from . import proc
+from . import midfix, proc
 
 AUDIO_EXT = (".ogg", ".opus", ".mp3", ".wav")
 CHART_NAMES = ("notes.mid", "notes.chart")
 ART_NAMES = ("album.png", "album.jpg", "album.jpeg", "cover.png", "cover.jpg")
+
+PARTS = ("drum", "bass", "guitar", "vocals")
+
+# Clone Hero .chart sections, without their difficulty prefix, and the Rock Band
+# part each becomes. Rock Band 2 has no keys and no six-fret parts, so those
+# sections have nowhere to go.
+CHART_SECTIONS = {
+    "single": "guitar",
+    "doubleguitar": "guitar",
+    "doublebass": "bass",
+    "doublerhythm": "bass",
+    "drums": "drum",
+    "realdrums": "drum",
+}
+CHART_DIFFS = ("expert", "hard", "medium", "easy")
+CHART_NOTE = re.compile(r"^\d+\s*=\s*N\b")
+
+# Which stems feed which part, and how wide that part's submix is. Bass and
+# vocals are mono and guitar is stereo, as in retail.
+PART_ROLES = [
+    ("bass",   ("rhythm", "bass"),                  1),
+    ("guitar", ("guitar",),                         2),
+    ("vocals", ("vocals", "vocals_1", "vocals_2"),  1),
+]
+# Stems that end up in the backing track when no part claims them, in the order
+# they are mixed. Backing is mono: of the 83 shipped PS2 entries, 71 leave
+# exactly one channel unclaimed by any part and the rest leave none, and the
+# only ones with a spare pair are tutorial assets, never a song. Keys fold in
+# here because Rock Band 2 has no keys. Anything not named here - crowd audio,
+# a folder's own preview clip - stays off the disc.
+BACKING_STEMS = ("song", "keys", "drums", "drums_1", "drums_2", "drums_3",
+                 "drums_4", "bass", "rhythm", "guitar", "vocals", "vocals_1",
+                 "vocals_2")
 
 # song.ini records band difficulty as Rock Band's own tier index, 0-6, which the
 # game shows as Warmup through Impossible. The top tier is the one to drop first
@@ -48,6 +81,7 @@ class Song:
         self.tier = kw.get("tier")
         self.has_art = kw.get("has_art", False)
         self.stems = kw.get("stems") or []
+        self.parts = kw.get("parts") or []
         self.sid = kw.get("sid") or ""
 
     @property
@@ -62,7 +96,8 @@ class Song:
         return {"library": self.library, "path": self.path, "title": self.title,
                 "artist": self.artist, "seconds": self.seconds,
                 "channels": self.channels, "tier": self.tier,
-                "has_art": self.has_art, "stems": self.stems}
+                "has_art": self.has_art, "stems": self.stems,
+                "parts": self.parts}
 
     @classmethod
     def from_dict(cls, d):
@@ -97,23 +132,107 @@ def make_id(meta, folder, used):
     return out
 
 
-def channels_for(stems):
-    """How many audio channels this song's stems will become.
+def charted_parts(folder):
+    """The parts this song's chart actually has notes on.
 
-    Mirrors the role plan the audio stage applies, so a song can be priced
-    before it is built. Every part is given channels whether the folder has a
-    stem for it or not, so seven is the floor.
+    A song can only offer what its chart plays. Listing an instrument the chart
+    has nothing on crashes the game as the song loads, and no retail entry does
+    it: on the disc, every part with a rank has a chart track and audio channels
+    of its own. A guitar-only chart therefore becomes a guitar-only song.
+
+    Lyrics are not a vocals part. Most Clone Hero charts carry them for the
+    karaoke display alone, and the chart converter turns them into a stub where
+    every syllable sits on the same pitch, which is not something to hand
+    somebody as a part to sing.
     """
+    mid = os.path.join(folder, "notes.mid")
+    if os.path.exists(mid):
+        # Clone Hero prefers notes.mid where a folder has both, so match it.
+        try:
+            return midfix.instrument_parts(mid)
+        except (OSError, ValueError, IndexError):
+            return set()
+    chart = os.path.join(folder, "notes.chart")
+    if not os.path.exists(chart):
+        return set()
+    parts, section = set(), ""
+    with open(chart, encoding="utf-8", errors="replace") as fp:
+        for line in fp:
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip().lower()
+                for diff in CHART_DIFFS:
+                    if section.startswith(diff):
+                        section = section[len(diff):]
+                        break
+            elif section in CHART_SECTIONS and CHART_NOTE.match(line):
+                parts.add(CHART_SECTIONS[section])
+    return parts
+
+
+def drum_roles(names):
+    """How drum stems split into channels, by how many the chart provides.
+
+    Clone Hero conventions: with 4 stems the split is kick/snare/toms/cymbals,
+    with 3 it is kick/snare/kit, with 2 it is kick/rest-of-kit, and a lone
+    drums.ogg is the whole kit. Only kick and snare collapse to mono; anything
+    representing the wider kit stays stereo.
+
+    Widths are deliberately held to 2 or 4, the only two drum submixes proven to
+    load on this build: Can't Buy Me Love plays a stereo kit against a chart
+    asking for drums0, and retail Afterlife has four channels against drums3.
+    A 2-stem source therefore folds its kick back into the kit rather than
+    producing a 3-wide submix whose mix event we cannot verify - it costs kick
+    isolation during fills, which is what any 2-channel retail song like
+    marchofthepigs already lives with.
+
+    A chart with drums but no drum stems still gets a kit, silent, because the
+    part has to have somewhere to play from.
+    """
+    numbered = [n for n in ("drums_1", "drums_2", "drums_3", "drums_4")
+                if n in names]
+    if not numbered:
+        return [{"role": "kit", "width": 2,
+                 "keys": ["drums"] if "drums" in names else []}]
+    if len(numbered) >= 3:
+        return [
+            {"role": "kick",  "width": 1, "keys": numbered[0:1]},
+            {"role": "snare", "width": 1, "keys": numbered[1:2]},
+            {"role": "kit",   "width": 2, "keys": numbered[2:]},
+        ]
+    return [{"role": "kit", "width": 2, "keys": numbered}]
+
+
+def channel_plan(names, parts):
+    """The channels a song's audio becomes: [{role, width, keys}] in disc order.
+
+    names are the stem names in the song folder, parts the instruments the
+    chart plays. One place decides this so a song can be priced from its folder
+    alone and mixed later to the same layout.
+    """
+    plan, claimed = [], set()
+    if "drum" in parts:
+        plan = drum_roles(names)
+        claimed |= {n for n in names if n.startswith("drums")}
+    for role, candidates, width in PART_ROLES:
+        if role not in parts:
+            continue
+        keys = [c for c in candidates if c in names]
+        claimed.update(keys)
+        plan.append({"role": role, "width": width, "keys": keys})
+    # Everything nobody is playing is mixed together as the backing track, as
+    # the retail mixes do: a stem for a part this chart skips belongs there
+    # rather than being dropped, or the song would be missing that instrument.
+    backing = [n for n in BACKING_STEMS if n in names and n not in claimed]
+    if backing:
+        plan.append({"role": "backing", "width": 1, "keys": backing})
+    return plan
+
+
+def channels_for(stems, parts):
+    """How many audio channels this song's stems will become."""
     names = {os.path.splitext(f)[0].lower() for f in stems}
-    drums = sorted(s for s in names if s.startswith("drums"))
-    # 2 or 4 drum channels, the only widths the game is proven to accept.
-    total = 4 if len(drums) >= 3 else 2
-    total += 1          # bass, mono
-    total += 2          # guitar, stereo
-    total += 1          # vocals, mono
-    if {"song", "keys"} & names:
-        total += 1      # whatever is left over, mixed down to a mono backing
-    return total
+    return sum(p["width"] for p in channel_plan(names, parts))
 
 
 def _duration(ffprobe, path):
@@ -179,13 +298,24 @@ def scan(settings, rescan=False, progress=None, log=None):
                 tier = value if 0 <= value < len(TIER_NAMES) else None
             except ValueError:
                 pass
+            known = cache.get(d)
+            unchanged = bool(known) and known.get("stems") == sorted(stems)
+            parts = known.get("parts") if unchanged else None
+            if parts is None:
+                # Reading the chart costs a moment per song, so a folder that
+                # has not changed since the last scan keeps what it said then.
+                parts = sorted(charted_parts(d))
+            if not parts:
+                skipped.append(
+                    (os.path.basename(os.path.normpath(d)),
+                     "the chart has no drums, bass, guitar or vocals"))
+                continue
             song = Song(lib.name, d,
                         title=meta.get("name"), artist=meta.get("artist"),
-                        channels=channels_for(stems), tier=tier,
+                        channels=channels_for(stems, parts), tier=tier,
                         has_art=any(a in files for a in ART_NAMES),
-                        stems=sorted(stems))
-            known = cache.get(d)
-            if known and known.get("stems") == song.stems and known.get("seconds"):
+                        stems=sorted(stems), parts=parts)
+            if unchanged and known.get("seconds"):
                 song.seconds = known["seconds"]
             else:
                 fresh.append(song)

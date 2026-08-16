@@ -36,6 +36,8 @@ VOCAL_GENDER = {
 # rank 1, which would show a bogus one-dot tier in the song list.
 MIN_RANK = 2
 
+PARTS = ("drum", "guitar", "bass", "vocals")
+
 
 def grab(text, key, default=None):
     """Pull a simple ('key' value) pair out of an Onyx-generated DTA."""
@@ -87,26 +89,42 @@ def build_entry(info, onyx_dta):
     tempo = grab(onyx_dta, "anim_tempo", "kTempoMedium")
     bank = grab(onyx_dta, "bank", DEFAULT_BANK)
 
-    ranks = {p: grab_rank(onyx_dta, p) for p in
-             ("drum", "guitar", "bass", "vocals", "band")}
-    # Rate an unrated but charted part alongside the band as a whole rather
-    # than leaving it pinned at the bottom tier.
-    for part in ("drum", "guitar", "bass", "vocals"):
-        if ranks[part] < MIN_RANK and ranks["band"] >= MIN_RANK:
+    ranks = {p: grab_rank(onyx_dta, p) for p in PARTS + ("band",)}
+    # A rank of 0 is how the game is told an instrument cannot be played at all,
+    # and the parts with no channels are exactly the ones the chart has nothing
+    # on: see library.charted_parts.
+    offered = [p for p in PARTS if info["tracks"].get(p)]
+    for part in PARTS:
+        if part not in offered:
+            ranks[part] = 0
+    # Onyx leaves the band unrated when the source chart carried no band
+    # difficulty, which no retail entry does. Rate it by what can actually be
+    # played instead of showing a bogus bottom tier in the song list.
+    if ranks["band"] < MIN_RANK:
+        rated = [ranks[p] for p in offered if ranks[p] >= MIN_RANK]
+        ranks["band"] = max(MIN_RANK,
+                            int(round(sum(rated) / len(rated))) if rated else 0)
+    # Same for an unrated part that is played, rated alongside the band rather
+    # than left pinned at the bottom tier.
+    for part in offered:
+        if ranks[part] < MIN_RANK:
             ranks[part] = ranks["band"]
 
-    # Every part this entry ranks has to have channels behind it. No song the
-    # game ships breaks that, and one that does crashes as it loads: the mixer
-    # is handed a part with nowhere to read from. The audio stage gives each part
-    # channels, silent if need be, so this only catches a slip.
-    partless = [p for p in ("drum", "guitar", "bass", "vocals")
-                if ranks[p] >= MIN_RANK and not info["tracks"].get(p)]
-    if partless:
+    # Ranks and channels have to name the same parts. No song the game ships
+    # breaks that, and one that does crashes as it loads: the mixer is handed a
+    # part with nowhere to read from, or the game is offered a part the chart
+    # cannot supply. Both sides come from the same place now, so this only
+    # catches a slip.
+    trouble = ["%s would be listed to play with no audio channels behind it" % p
+               for p in PARTS if ranks[p] >= MIN_RANK and p not in offered]
+    trouble += ["%s has audio channels but would not be listed as playable" % p
+                for p in offered if ranks[p] < MIN_RANK]
+    if trouble:
         raise BuildError(
-            "%s would be listed with %s to play but no audio channels for it, "
-            "which crashes the game as the song loads. Its mix has %d channels: "
-            "%s." % (sid, ", ".join(partless), info["channels"],
-                     json.dumps(info["tracks"])))
+            "%s's song list entry and its audio disagree about what can be "
+            "played, which crashes the game as the song loads: %s. Its mix has "
+            "%d channels: %s." % (sid, "; ".join(trouble), info["channels"],
+                                  json.dumps(info["tracks"])))
 
     # Emit tracks in a stable instrument order.
     track_lines = []

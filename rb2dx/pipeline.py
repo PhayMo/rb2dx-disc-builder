@@ -38,8 +38,10 @@ _MUX_LOCK = threading.Lock()
 # Bumped whenever a stage's output changes shape, so songs staged by an older
 # version are rebuilt instead of being shipped as they are. 2: every part now
 # gets audio channels of its own, silent where there is no stem for it. 3: the
-# audio is lined up with the silence Onyx put in front of the chart.
-FORMAT = 3
+# audio is lined up with the silence Onyx put in front of the chart. 4: a song
+# offers only the parts its chart plays, so channels, ranks and chart tracks
+# all name the same instruments.
+FORMAT = 4
 
 
 class Result:

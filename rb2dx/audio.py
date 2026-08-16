@@ -8,12 +8,15 @@ For each song this writes into that song's stage folder:
 The 3 seconds of silence exist because PS2 Rock Band starts reading the chart
 3 seconds in; the chart itself is left untouched. Channel order here must match
 the tracks/pans/vols arrays written into songs.dta.
+
+Which channels a song gets is decided by library.channel_plan, from the stems in
+the folder and the parts its chart plays.
 """
 
 import json
 import os
 
-from . import proc
+from . import library, proc
 from .library import AUDIO_EXT, read_ini
 
 RATE = 22050
@@ -24,60 +27,6 @@ RATE = 22050
 LEAD_SILENCE_MS = 3000
 PREVIEW_SECS = 30
 DRUM_ROLES = ("kick", "snare", "kit")
-
-# Non-drum roles. Bass and vocals are mono and guitar is stereo, as in retail.
-# Backing is mono: of the 83 shipped PS2 entries, 71 leave exactly one channel
-# unclaimed by any part and the rest leave none, and the only ones with a spare
-# pair are tutorial assets, never a song. marchofthepigs
-# and perfectdrug have our exact part widths and total 7 channels, so a stereo
-# backing pair would put us one channel wider than anything the game ships.
-# Keys fold into backing because Rock Band 2 has no keys. Crowd audio is dropped.
-MELODIC_ROLES = [
-    ("bass",    ["rhythm", "bass"], 1),
-    ("guitar",  ["guitar"],         2),
-    ("vocals",  ["vocals"],         1),
-    ("backing", ["song", "keys"],   1),
-]
-
-
-def drum_plan(present):
-    """Map drum stems to roles based on how many the chart splits them into.
-
-    Clone Hero conventions: with 4 stems the split is kick/snare/toms/cymbals,
-    with 3 it is kick/snare/kit, with 2 it is kick/rest-of-kit, and a lone
-    drums.ogg is the whole kit. Only kick and snare collapse to mono; anything
-    representing the wider kit stays stereo.
-
-    Widths are deliberately held to 2 or 4, the only two drum submixes proven to
-    load on this build: Can't Buy Me Love plays a stereo kit against a chart
-    asking for drums0, and retail Afterlife has four channels against drums3.
-    A 2-stem source therefore folds its kick back into the kit rather than
-    producing a 3-wide submix whose mix event we cannot verify - it costs kick
-    isolation during fills, which is what any 2-channel retail song like
-    marchofthepigs already lives with.
-    """
-    numbered = [n for n in ("drums_1", "drums_2", "drums_3", "drums_4") if n in present]
-    if not numbered:
-        return [{"role": "kit", "files": [present["drums"]], "width": 2}] \
-            if "drums" in present else []
-
-    if len(numbered) >= 4:
-        return [
-            {"role": "kick",  "files": [present["drums_1"]], "width": 1},
-            {"role": "snare", "files": [present["drums_2"]], "width": 1},
-            {"role": "kit",   "files": [present["drums_3"], present["drums_4"]], "width": 2},
-        ]
-    if len(numbered) == 3:
-        return [
-            {"role": "kick",  "files": [present["drums_1"]], "width": 1},
-            {"role": "snare", "files": [present["drums_2"]], "width": 1},
-            {"role": "kit",   "files": [present["drums_3"]], "width": 2},
-        ]
-    if len(numbered) == 2:
-        return [{"role": "kit",
-                 "files": [present["drums_1"], present["drums_2"]],
-                 "width": 2}]
-    return [{"role": "kit", "files": [present["drums_1"]], "width": 2}]
 
 
 def stems_in(folder):
@@ -144,21 +93,17 @@ def stage(settings, sid, source_dir, log=None):
     meta = read_ini(ini)
     present = stems_in(src)
 
-    # Every part gets channels of its own, silent ones where the folder has no
-    # stem to fill them. Each of the 40 songs the game ships ranks all four
-    # instruments and gives all four channels, without exception: a part the song
-    # list ranks but leaves nowhere to play from crashes the game as the song
-    # loads. So a single-file custom becomes a real backing track behind four
-    # silent parts - missing a note mutes silence, and the song carries on from
-    # the backing where every instrument was mixed together.
-    plan = drum_plan(present) or [{"role": "kit", "files": [], "width": 2}]
-    for role, candidates, width in MELODIC_ROLES:
-        files = [present[c] for c in candidates if c in present]
-        if not files and role == "backing":
-            # Nothing unclaimed to put here, as on the retail songs that use
-            # every channel they have.
-            continue
-        plan.append({"role": role, "files": files, "width": width})
+    # The parts the chart plays get channels; nothing else does. Each of the 40
+    # songs the game ships gives every part it ranks channels of its own, and
+    # ranks every part it gives channels to - a song list entry that breaks
+    # either way round crashes the game as the song loads. A part whose stem is
+    # missing still gets channels, silent ones, so missing a note mutes silence
+    # and the song carries on from the backing.
+    parts = library.charted_parts(src)
+    if not parts:
+        return False, "the chart has no drums, bass, guitar or vocals"
+    plan = [dict(p, files=[present[k] for k in p["keys"]])
+            for p in library.channel_plan(set(present), parts)]
     if not any(p["files"] for p in plan):
         return False, "the song folder has no audio stems"
 
@@ -278,6 +223,7 @@ def stage(settings, sid, source_dir, log=None):
         "genre": meta.get("genre", ""),
         "year": meta.get("year", ""),
         "channels": ch_i,
+        "parts": sorted(parts),
         "tracks": tracks,
         "pans": pans,
         "vols": vols,

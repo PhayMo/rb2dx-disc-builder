@@ -29,8 +29,13 @@ game files.
 `guitar.ogg` and `drums_1.ogg` are ideal, since the game can then mute each part
 as it is missed, but a single mixed `song.ogg` works too - as do `.wav`, `.mp3`
 and `.opus`. With one mixed file the whole song plays from the backing track, so
-missed notes do not drop out; it costs about as much disc space as a song with
-full stems, because every part is still given channels of its own.
+missed notes do not drop out.
+
+A song offers exactly the parts its chart plays: a guitar-only chart becomes a
+guitar-only song, and its disc space goes down accordingly. Stems for a part the
+chart skips are not wasted - they are mixed into the backing track, so the song
+still sounds complete. Lyrics on their own are not a vocals part; most Clone Hero
+charts carry them just to show the words.
 
 **Background videos** are included - eleven short clips in `venues\`, one picked
 per song and looped behind it. Drop your own files in that folder, or point the
@@ -121,12 +126,13 @@ failed songs again* clears that.
 **The disc will not boot.** Check the ISO is not larger than the size limit, and
 that the game folder you pointed at boots as-is.
 
-**A song hangs on the loading screen or crashes as it loads.** Almost always the
-audio channel layout: an instrument the song list offers to play with no audio
-channels behind it will do it every time. Every part is given channels of its
-own, silent ones where a song has no stem for them, and the chart's drum mix
-events are checked against the audio before a song ships - so this should be
-caught for you. If it is not, please report it.
+**A song hangs on the loading screen or crashes as it loads.** Almost always a
+song list entry that promises something the song cannot deliver: an instrument
+offered with no audio channels behind it, or with nothing charted for it, does it
+every time. Nothing the game ships breaks that rule, so nothing built here does
+either - the parts a chart plays decide the channels, the ranks and the chart
+tracks together, and the chart's drum mix events are checked against the audio
+before a song ships. If a song still crashes, please report it.
 
 **The notes do not line up with the music.** Fixed already: the chart converter
 pushes a chart forward by up to three seconds, by a whole number of seconds, so
@@ -144,8 +150,8 @@ Each song goes through these stages, and songs run in parallel:
 
 | Stage | What happens |
 | --- | --- |
-| audio | Stems are mixed into the channel layout the game expects, at 22050 Hz, plus a 30 second preview |
-| charts | Onyx and Magma convert the chart to Rock Band 2 form; lyrics and lower difficulties are repaired first so Magma accepts them |
+| audio | Stems are mixed at 22050 Hz into one channel group per part the chart plays, everything else into the backing, plus a 30 second preview |
+| charts | Onyx and Magma convert the chart to Rock Band 2 form; lyrics and lower difficulties are repaired first so Magma accepts them, and parts the song does not offer are dropped |
 | art | Album art becomes a 256x256 8-bit paletted PS2 texture |
 | vgs | The mix is encoded to PlayStation 4-bit ADPCM, lined up with the silence the chart converter put in front of the song |
 | video | A background video is encoded to MPEG-2 and muxed with the audio into a `.pss` |

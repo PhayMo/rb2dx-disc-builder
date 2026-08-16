@@ -17,6 +17,12 @@ import re
 import struct
 
 INSTRUMENT_TRACKS = ("PART DRUMS", "PART GUITAR", "PART BASS", "PART VOCALS")
+# Every track that belongs to a part, including the harmony tracks that go with
+# vocals, and which part the game plays it as.
+PART_FOR_TRACK = {"PART DRUMS": "drum", "PART GUITAR": "guitar",
+                  "PART BASS": "bass", "PART RHYTHM": "bass",
+                  "PART VOCALS": "vocals", "HARM1": "vocals",
+                  "HARM2": "vocals", "HARM3": "vocals"}
 BAD_PITCHES = (101, 102)
 RETAIL_ORDER = ("PART DRUMS", "PART GUITAR", "PART BASS", "PART VOCALS",
                 "VENUE", "EVENTS", "BEAT")
@@ -155,6 +161,17 @@ def first_note_seconds(path):
     if not ticks:
         return None
     return seconds_at(tempo_changes(tracks), div, min(ticks))
+
+
+def instrument_parts(path):
+    """The parts this chart has notes on, as songs.dta names them."""
+    _, _, tracks = read_mid(path)
+    out = set()
+    for events in tracks:
+        part = PART_FOR_TRACK.get(track_name(events).upper())
+        if part and any(note_on(ev) for _, ev in events):
+            out.add(part)
+    return out
 
 
 def track_name(events):
@@ -307,11 +324,16 @@ def fix_lyrics(path):
 
 
 def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,
-            do_order=False, one_tempo=False, rename=None, drum_width=None):
+            do_order=False, one_tempo=False, rename=None, drum_width=None,
+            keep_parts=None):
     """Apply the selected transforms, writing a new chart. Returns a report.
 
     drum_width is the number of drum channels the song's mix actually has; when
     given, drum mix events are rewritten to the mode that matches it.
+
+    keep_parts, when given, is the set of parts the song offers; tracks for any
+    other part are dropped so that the chart holds exactly what the song list
+    says can be played.
     """
     fmt, div, tracks = read_mid(src)
 
@@ -398,6 +420,22 @@ def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,
             report.append("tempo track: renamed to %r" % rename)
 
         tracks[idx] = events
+
+    if keep_parts is not None:
+        dropped, kept = [], []
+        for events in tracks:
+            name = track_name(events)
+            part = PART_FOR_TRACK.get(name.upper())
+            if part and part not in keep_parts:
+                dropped.append((name, part))
+                continue
+            kept.append(events)
+        tracks = kept
+        if dropped:
+            report.append(
+                "dropped %s: the song does not offer %s"
+                % (", ".join(name for name, _ in dropped),
+                   ", ".join(sorted({part for _, part in dropped}))))
 
     if do_order:
         first = tracks[0]

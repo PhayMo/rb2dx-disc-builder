@@ -75,21 +75,22 @@ def is_done(settings, sid):
     return recorded_lead(settings, sid) is not None
 
 
-def _drum_width(settings, sid):
-    """How many drum channels this song's mix actually has.
+def _layout(settings, sid):
+    """The layout the audio step wrote, which the chart has to agree with.
 
-    Comes from the layout the audio step wrote, which is what the chart's mix
-    events have to agree with.
+    It says how many drum channels the mix has, for the chart's mix events, and
+    which parts the song offers, which are the only ones the chart may hold.
     """
     layout = os.path.join(settings.stage, sid, "layout.json")
     try:
         with open(layout, encoding="utf-8") as fp:
             info = json.load(fp)
-        return len(info["tracks"].get("drum", []))
+        return (len(info["tracks"].get("drum", [])),
+                set(info["parts"]))
     except (OSError, ValueError, KeyError):
         raise BuildError(
-            "%s has no usable audio layout yet, so its chart cannot be told "
-            "how many drum channels to mix. Build this song's audio first." % sid)
+            "%s has no usable audio layout yet, so its chart cannot be lined "
+            "up with the mix. Build this song's audio first." % sid)
 
 
 def build(settings, sid, source_dir, log=None):
@@ -100,7 +101,7 @@ def build(settings, sid, source_dir, log=None):
     can run at the same time; the work is Onyx subprocesses rather than Python.
     """
     onyx = settings.tool("onyx")
-    drum_width = _drum_width(settings, sid)
+    drum_width, parts = _layout(settings, sid)
 
     song_stage = os.path.join(settings.stage, sid)
     work = os.path.join(settings.chart_scratch, sid)
@@ -157,12 +158,22 @@ def build(settings, sid, source_dir, log=None):
     # midfix.py for what gets removed and why.
     raw = os.path.join(song_stage, sid + "_onyx.mid")
     shutil.copyfile(mid_src, raw)
-    fixes = midfix.conform(raw, os.path.join(song_stage, sid + ".mid"),
+    shipped = os.path.join(song_stage, sid + ".mid")
+    fixes = midfix.conform(raw, shipped,
                            do_events=True, do_pitches=True,
                            do_lighting=True, do_order=True, rename=sid,
-                           drum_width=drum_width)
+                           drum_width=drum_width, keep_parts=parts)
     for line in fixes:
         _say(log, line)
+
+    # The song list will offer exactly the parts the audio was mixed for, so the
+    # chart has to hold all of them. Onyx can drop one - a part too sparse to
+    # reduce, say - and shipping a song that offers a part with no notes behind
+    # it is what crashes the game as it loads.
+    missing = parts - midfix.instrument_parts(shipped)
+    if missing:
+        return False, ("the built chart has nothing on %s, which the song "
+                       "offers to play" % ", ".join(sorted(missing)))
 
     lead = record_lead(settings, sid,
                        measure_pad(os.path.join(proj, "notes.mid"), raw))
