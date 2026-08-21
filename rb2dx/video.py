@@ -58,9 +58,13 @@ VENUE_EXTS = (".mp4", ".webm", ".mkv", ".avi", ".mov")
 # A song folder can carry its own video, which Clone Hero plays behind that song
 # and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
 # charts use background.<ext> for the same thing, next to the still image of that
-# name. The extensions are Clone Hero's list plus the ones venue clips can use.
+# name. Every format Clone Hero accepts for an animated background is here -
+# .mp4, .avi, .webm, .ogv, .mpeg - plus a few near neighbours of those that
+# ffmpeg reads just as happily, since nothing here has to run on Clone Hero's
+# players. Its animated highways are .webm too, but the highway is not a
+# background: Rock Band 2 draws its own, so those are left alone.
 SONG_VIDEO_NAMES = ("video", "background")
-SONG_VIDEO_EXTS = VENUE_EXTS + (".ogv", ".mpeg", ".mpg", ".m4v", ".vp8")
+SONG_VIDEO_EXTS = VENUE_EXTS + (".ogv", ".mpeg", ".mpg", ".m4v")
 
 
 def vgs_info(path):

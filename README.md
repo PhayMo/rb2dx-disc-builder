@@ -42,10 +42,15 @@ per song and looped behind it. Drop your own files in that folder, or point the
 Setup page at a different one. They only need to be a few seconds long.
 
 A song that brings its own video plays that instead, the way Clone Hero does it:
-a `video.mp4`, `.webm`, `.avi`, `.mkv`, `.mov`, `.ogv`, `.mpeg`, `.m4v` or `.vp8`
-in the song folder, or the same under the name `background`. `song.ini`'s
-`video_start_time` is honoured, so a video meant to start part-way in still lines
-up, and a short one loops rather than running out.
+a file named `video` or `background` in the song folder, in any format Clone Hero
+accepts for an animated background - `.mp4`, `.avi`, `.webm`, `.ogv`, `.mpeg` -
+or `.mkv`, `.mov`, `.mpg` and `.m4v` besides. `song.ini`'s `video_start_time` is
+honoured, so a video meant to start part-way in still lines up, and a short one
+loops rather than running out.
+
+A still `background.png` or `.jpg` is left alone, and that song gets an animated
+venue clip like any other. Clone Hero's animated highways are not backgrounds
+either: Rock Band 2 draws its own note track.
 
 **`ps2str.exe`**, from Sony's PS2 SDK. It muxes the video and audio together.
 It cannot be distributed with this tool, so you have to supply your own copy.
