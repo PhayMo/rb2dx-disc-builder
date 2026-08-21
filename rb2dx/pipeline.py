@@ -101,9 +101,21 @@ class Pipeline:
                 stems.append([name, st.st_size, int(st.st_mtime)])
             except OSError:
                 stems.append([name, 0, 0])
-        return {"source": song.path, "stems": stems,
-                "video_kbps": self.settings.video_kbps,
-                "format": FORMAT}
+        sig = {"source": song.path, "stems": stems,
+               "video_kbps": self.settings.video_kbps,
+               "format": FORMAT}
+        # A folder's own video plays behind that song, so swapping it has to
+        # rebuild the song the way a changed stem does. Only songs that have one
+        # carry the key, so nothing already built is disturbed by it appearing.
+        own = video.song_video(song.path)
+        if own:
+            try:
+                st = os.stat(own)
+                sig["video"] = [os.path.basename(own), st.st_size,
+                                int(st.st_mtime)]
+            except OSError:
+                sig["video"] = [os.path.basename(own), 0, 0]
+        return sig
 
     def _stale(self, song):
         path = self._stamp_path(song.sid)
@@ -140,7 +152,7 @@ class Pipeline:
             return module.encode(self.settings, sid)
         with _MUX_LOCK:
             self._check()
-            return module.build(self.settings, sid, self.venue_dir)
+            return module.build(self.settings, sid, self.venue_dir, source)
 
     def _build_song(self, song):
         """All stages for one song. Returns (song, stage, reason) on failure."""

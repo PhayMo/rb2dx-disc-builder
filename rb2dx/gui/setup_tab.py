@@ -42,7 +42,8 @@ class SetupTab(ttk.Frame):
         self.venue = PathRow(
             files, "Background videos", hint="Short clips, looped behind "
             "each song. Starts out using the ones bundled with this tool - "
-            "point somewhere else to use your own.", on_change=self.push)
+            "point somewhere else to use your own. A song folder holding its "
+            "own video plays that instead.", on_change=self.push)
         self.work = PathRow(
             files, "Work folder", hint="Scratch space. Allow about twice "
             "the size of the finished disc.", on_change=self.push)

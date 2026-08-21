@@ -41,6 +41,12 @@ charts carry them just to show the words.
 per song and looped behind it. Drop your own files in that folder, or point the
 Setup page at a different one. They only need to be a few seconds long.
 
+A song that brings its own video plays that instead, the way Clone Hero does it:
+a `video.mp4`, `.webm`, `.avi`, `.mkv`, `.mov`, `.ogv`, `.mpeg`, `.m4v` or `.vp8`
+in the song folder, or the same under the name `background`. `song.ini`'s
+`video_start_time` is honoured, so a video meant to start part-way in still lines
+up, and a short one loops rather than running out.
+
 **`ps2str.exe`**, from Sony's PS2 SDK. It muxes the video and audio together.
 It cannot be distributed with this tool, so you have to supply your own copy.
 Everything else - FFmpeg, Onyx, dtab and Mackiloha - the Setup page downloads
@@ -154,7 +160,7 @@ Each song goes through these stages, and songs run in parallel:
 | charts | Onyx and Magma convert the chart to Rock Band 2 form; lyrics and lower difficulties are repaired first so Magma accepts them, and parts the song does not offer are dropped |
 | art | Album art becomes a 256x256 8-bit paletted PS2 texture |
 | vgs | The mix is encoded to PlayStation 4-bit ADPCM, lined up with the silence the chart converter put in front of the song |
-| video | A background video is encoded to MPEG-2 and muxed with the audio into a `.pss` |
+| video | The song's own video, or a venue clip if it has none, is encoded to MPEG-2 and muxed with the audio into a `.pss` |
 | archive | Song files and the compiled song list are injected into the game's archive, which is repacked |
 | iso | A bootable ISO9660/UDF image is written |
 | verify | Every shipped file is read back out of the archive and compared |

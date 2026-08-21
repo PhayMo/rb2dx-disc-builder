@@ -30,6 +30,7 @@ import subprocess
 
 from . import proc
 from .errors import BuildError
+from .library import read_ini
 
 # Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail uses
 # 2000 kbit/s; 1500 is the tutorial's recommendation and buys ~8 MB of disc,
@@ -54,6 +55,12 @@ SAMPLES_PER_BLOCK = 28
 ADPCM_BLOCK = 16
 
 VENUE_EXTS = (".mp4", ".webm", ".mkv", ".avi", ".mov")
+# A song folder can carry its own video, which Clone Hero plays behind that song
+# and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
+# charts use background.<ext> for the same thing, next to the still image of that
+# name. The extensions are Clone Hero's list plus the ones venue clips can use.
+SONG_VIDEO_NAMES = ("video", "background")
+SONG_VIDEO_EXTS = VENUE_EXTS + (".ogv", ".mpeg", ".mpg", ".m4v", ".vp8")
 
 
 def vgs_info(path):
@@ -96,6 +103,17 @@ def venue_videos(venue_dir):
             if f.lower().endswith(VENUE_EXTS)]
 
 
+def song_video(source_dir):
+    """The video a song folder brought with it, or "" if it has none."""
+    if not source_dir or not os.path.isdir(source_dir):
+        return ""
+    for name in sorted(os.listdir(source_dir)):
+        stem, ext = os.path.splitext(name)
+        if stem.lower() in SONG_VIDEO_NAMES and ext.lower() in SONG_VIDEO_EXTS:
+            return os.path.join(source_dir, name)
+    return ""
+
+
 def pick_venue(sid, venue_dir):
     vids = venue_videos(venue_dir)
     if not vids:
@@ -108,21 +126,56 @@ def pick_venue(sid, venue_dir):
     return os.path.join(venue_dir, random.Random(seed).choice(vids))
 
 
-def encode_video(settings, src, dst, seconds):
-    """Encode one venue clip to the retail MPEG-2 shape, looping to length."""
+def choose_video(sid, venue_dir, source_dir=""):
+    """What plays behind one song: its own video if it has one, else a venue clip.
+
+    Returns (path, is_the_song's_own).
+    """
+    own = song_video(source_dir)
+    if own:
+        return own, True
+    return pick_venue(sid, venue_dir), False
+
+
+def video_offset(source_dir):
+    """(seconds into the video to start, seconds of black to add first).
+
+    song.ini's video_start_time is where in the video Clone Hero starts playing
+    when the song starts. A negative value holds the video back instead, which
+    here means that much black in front of it.
+    """
+    ini = os.path.join(source_dir or "", "song.ini")
+    if not os.path.exists(ini):
+        return 0.0, 0.0
+    try:
+        raw = float(read_ini(ini).get("video_start_time", 0) or 0) / 1000.0
+    except ValueError:
+        return 0.0, 0.0
+    return (raw, 0.0) if raw > 0 else (0.0, abs(raw))
+
+
+def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0):
+    """Encode one clip to the retail MPEG-2 shape, looping to length.
+
+    start skips that far into the source and delay puts that much extra black in
+    front of it, which is how a song's own video is lined up with its audio.
+    """
     vf = ("scale=%d:%d:force_original_aspect_ratio=increase,"
           "crop=%d:%d,fps=%s,tpad=start_duration=%s:start_mode=add:color=black"
-          % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS, LEAD_IN))
+          % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS, LEAD_IN + delay))
     kbps = settings.video_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
-           "-stream_loop", "-1", "-i", src,
-           "-an", "-vf", vf, "-t", "%.3f" % seconds,
-           "-c:v", "mpeg2video",
-           "-b:v", "%dk" % kbps,
-           "-minrate", "%dk" % kbps,
-           "-maxrate", "%dk" % kbps,
-           "-bufsize", "%d" % VBV_BITS,
-           "-pix_fmt", "yuv420p", dst]
+           "-stream_loop", "-1"]
+    if start:
+        cmd += ["-ss", "%.3f" % start]
+    cmd += ["-i", src,
+            "-an", "-vf", vf, "-t", "%.3f" % seconds,
+            "-c:v", "mpeg2video",
+            "-b:v", "%dk" % kbps,
+            "-minrate", "%dk" % kbps,
+            "-maxrate", "%dk" % kbps,
+            "-bufsize", "%d" % VBV_BITS,
+            "-pix_fmt", "yuv420p", dst]
     return proc.run(cmd, capture_output=True, text=True)
 
 
@@ -179,7 +232,7 @@ def is_done(settings, sid):
             and os.path.getsize(pss) > 0)
 
 
-def build(settings, sid, venue_dir, log=None):
+def build(settings, sid, venue_dir, source_dir="", log=None):
     """Mux one staged song's video and audio into its .pss. Returns (ok, message)."""
     d = os.path.join(settings.stage, sid)
     vgs = os.path.join(d, "%s.vgs" % sid)
@@ -189,16 +242,20 @@ def build(settings, sid, venue_dir, log=None):
     info = vgs_info(vgs)
     rate = data_rate(info["rate"], info["channels"])
     vid_secs = max(1.0, info["seconds"] - TAIL_SLACK)
-    venue = pick_venue(sid, venue_dir)
+    venue, own = choose_video(sid, venue_dir, source_dir)
+    start, delay = video_offset(source_dir) if own else (0.0, 0.0)
 
     if log:
         log("audio: %d ch @ %d Hz, %.2fs (VGS v%d) -> %d bytes/sec"
             % (info["channels"], info["rate"], info["seconds"],
                info["version"], rate))
-        log("venue: %s" % os.path.basename(venue))
+        log("%s: %s%s" % ("the song's own video" if own else "venue",
+                          os.path.basename(venue),
+                          (", from %.2fs in" % start) if start else
+                          (", %.2fs of black first" % delay) if delay else ""))
 
     m2v, pss = outputs(settings, sid)
-    r = encode_video(settings, venue, m2v, vid_secs)
+    r = encode_video(settings, venue, m2v, vid_secs, start, delay)
     if r.returncode != 0 or not os.path.exists(m2v) or os.path.getsize(m2v) == 0:
         return False, "could not encode the background video: %s" % (
             (r.stderr or r.stdout).strip()[:160])
