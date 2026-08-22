@@ -81,6 +81,9 @@ class Pipeline:
         self.on_stage = on_stage or (lambda text: None)
         self.stop = threading.Event()
         self._lock = threading.Lock()
+        # Where the background clips come from: build() sets it and the video
+        # stage reads it. Set here too, so one song can be built on its own.
+        self.venue_dir = ""
 
     # ---- helpers -----------------------------------------------------------
 

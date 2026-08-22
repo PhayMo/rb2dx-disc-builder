@@ -225,9 +225,10 @@ def cmd_gui(args):
 
 def main(argv=None):
     # A build prints as it goes and takes hours, so keep the log live even when
-    # it is being written to a file.
+    # it is being written to a file. Song titles reach past what the console can
+    # show, so a character it has no room for is replaced rather than raised.
     try:
-        sys.stdout.reconfigure(line_buffering=True)
+        sys.stdout.reconfigure(line_buffering=True, errors="replace")
     except AttributeError:
         pass
 

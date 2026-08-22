@@ -170,6 +170,14 @@ why. Missing album art and charts that Magma rejects are the usual causes.
 Failures are remembered so later builds do not stall on the same song; *Try the
 failed songs again* clears that.
 
+**A song's chart will not convert.** Plenty of things a Clone Hero chart gets
+away with, Rock Band's compiler will not, and these are put right on the way
+through rather than costing you the song: an album track number of zero, chords
+of four or five gems where the game can draw three, vocal phrases nested inside
+one another, and lyrics belonging to a part the song does not offer, which are
+dropped along with it. Folder names holding characters the console cannot print
+are handled too.
+
 **The disc will not boot.** Check the ISO is not larger than the size limit, and
 that the game folder you pointed at boots as-is. In PCSX2 it never will - see
 *Playing in an emulator* above.
@@ -199,7 +207,7 @@ Each song goes through these stages, and songs run in parallel:
 | Stage | What happens |
 | --- | --- |
 | audio | Stems are mixed at 22050 Hz into one channel group per part the chart plays, everything else into the backing, plus a 30 second preview |
-| charts | Onyx and Magma convert the chart to Rock Band 2 form; lyrics and lower difficulties are repaired first so Magma accepts them, and parts the song does not offer are dropped |
+| charts | Onyx and Magma convert the chart to Rock Band 2 form; parts the song does not offer are dropped before Magma sees them, and lyrics, chords and lower difficulties are repaired so it accepts the rest |
 | art | Album art becomes a 256x256 8-bit paletted PS2 texture |
 | vgs | The mix is encoded to PlayStation 4-bit ADPCM, lined up with the silence the chart converter put in front of the song |
 | video | The song's own video, a venue clip if it has none, or black, is encoded to MPEG-2 and muxed with the audio into a `.pss` |

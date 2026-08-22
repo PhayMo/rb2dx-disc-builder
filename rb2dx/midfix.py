@@ -323,6 +323,150 @@ def fix_lyrics(path):
     return fixed
 
 
+def keep_only_parts(path, keep):
+    """Drop the tracks for parts the song does not offer. Returns what changed.
+
+    Run before Magma, which checks everything it is handed. A chart holding its
+    lyrics in the events track imports as a vocals part whether the song has
+    vocals or not, and Magma is strict about vocals, so this keeps a song from
+    failing over notes the disc was never going to carry.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    dropped = []
+    kept = []
+    for events in tracks:
+        name = track_name(events)
+        part = PART_FOR_TRACK.get(name.upper())
+        if part and part not in keep:
+            dropped.append((name, part))
+            continue
+        kept.append(events)
+    if not dropped:
+        return []
+
+    out = bytearray(b"MThd" + struct.pack(">IHHH", 6, fmt, len(kept), div))
+    for events in kept:
+        body = build_track(events)
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    with open(path, "wb") as fp:
+        fp.write(bytes(out))
+    return ["dropped %s before the chart is built: this song offers no %s"
+            % (", ".join(name for name, _ in dropped),
+               ", ".join(sorted({part for _, part in dropped})))]
+
+
+# A phrase marker, and the second player's alongside it.
+PHRASE_PITCHES = (105, 106)
+
+
+def fix_vocal_phrases(path):
+    """Fold a vocal phrase opened inside another into it.
+
+    A phrase is a note at pitch 105, or 106 for the second player's, spanning the
+    lyrics it holds, and Magma refuses a chart with two open at once: 'Vocal
+    phrase overlap', followed by a double note-on. The inner phrase's ends are
+    dropped, leaving one phrase over the same lyrics.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    fixed = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events).upper()
+        if "VOCALS" not in name and not name.startswith("HARM"):
+            continue
+
+        depth = dict.fromkeys(PHRASE_PITCHES, 0)
+        out = []
+        merged = 0
+        for tick, ev in events:
+            pitch = ev[1] if is_note(ev) else None
+            if pitch in depth:
+                if note_on(ev):
+                    depth[pitch] += 1
+                    if depth[pitch] > 1:
+                        merged += 1
+                        continue
+                else:
+                    depth[pitch] = max(0, depth[pitch] - 1)
+                    if depth[pitch] > 0:
+                        continue
+            out.append((tick, ev))
+        if merged:
+            tracks[idx] = out
+            fixed.append("%s: folded %d phrase%s into the one it was nested in"
+                         % (name, merged, "" if merged == 1 else "s"))
+
+    if not fixed:
+        return fixed
+
+    out = bytearray(b"MThd" + struct.pack(">IHHH", 6, fmt, len(tracks), div))
+    for events in tracks:
+        body = build_track(events)
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    with open(path, "wb") as fp:
+        fp.write(bytes(out))
+    return fixed
+
+
+# Rock Band draws three gems at once at most, and Magma stops at 'Chord at ...
+# has 4 slots; max is 3'.
+MAX_CHORD = 3
+CHORD_TRACKS = ("PART GUITAR", "PART BASS", "PART RHYTHM")
+
+
+def fix_wide_chords(path):
+    """Trim chords to the three gems Rock Band 2 can play.
+
+    The gems above the lowest three are dropped, so the chord keeps its root.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    fixed = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events).upper()
+        if name not in CHORD_TRACKS:
+            continue
+
+        drop = set()
+        for base in DIFF_BASES.values():
+            chords = {}
+            for tick, ev in events:
+                if note_on(ev) and base <= ev[1] <= base + 4:
+                    chords.setdefault(tick, []).append(ev[1])
+            for tick, pitches in chords.items():
+                for pitch in sorted(pitches)[MAX_CHORD:]:
+                    drop.add((tick, pitch))
+        if not drop:
+            continue
+
+        out = []
+        dropping = set()
+        for tick, ev in events:
+            if note_on(ev) and (tick, ev[1]) in drop:
+                dropping.add(ev[1])
+                continue
+            if is_note(ev) and not note_on(ev) and ev[1] in dropping:
+                dropping.discard(ev[1])
+                continue
+            out.append((tick, ev))
+        tracks[idx] = out
+        count = len({tick for tick, _ in drop})
+        fixed.append("%s: trimmed %d chord%s to the three gems RB2 can play"
+                     % (name, count, "" if count == 1 else "s"))
+
+    if not fixed:
+        return fixed
+
+    out = bytearray(b"MThd" + struct.pack(">IHHH", 6, fmt, len(tracks), div))
+    for events in tracks:
+        body = build_track(events)
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    with open(path, "wb") as fp:
+        fp.write(bytes(out))
+    return fixed
+
+
 def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,
             do_order=False, one_tempo=False, rename=None, drum_width=None,
             keep_parts=None):

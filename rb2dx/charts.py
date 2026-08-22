@@ -14,6 +14,7 @@ with, because the two disagreeing is what hangs the console.
 """
 
 import json
+import locale
 import os
 import re
 import shutil
@@ -21,6 +22,13 @@ import subprocess
 
 from . import midfix, proc
 from .errors import BuildError
+
+# The encoding Onyx writes its output in. See nameable below.
+CONSOLE_ENCODING = locale.getpreferredencoding(False)
+
+# Extensions left out of a staged import: the video is encoded separately.
+SKIP_FOR_IMPORT = (".mp4", ".webm", ".mkv", ".avi", ".mov", ".m4v", ".mpg",
+                   ".mpeg", ".ogv")
 
 # Drum channel count each mix mode needs, for the two modes this disc pins down
 # exactly: Can't Buy Me Love plays two channels against drums0, and retail
@@ -44,6 +52,73 @@ def run(cmd, timeout=None):
     except subprocess.TimeoutExpired:
         return -1, "timed out after %s seconds" % timeout
     return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def nameable(path):
+    """Whether Onyx can print this path.
+
+    Onyx writes the folder it is importing to its output, and a character that
+    output's encoding cannot represent ends it with 'commitBuffer: invalid
+    argument (invalid character)' before the chart is read.
+    """
+    try:
+        path.encode(CONSOLE_ENCODING)
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
+def stage_for_import(source_dir, dest):
+    """Put a song's files somewhere Onyx can name. Returns that folder.
+
+    Linked rather than copied where the filesystem allows it.
+    """
+    shutil.rmtree(dest, ignore_errors=True)
+    os.makedirs(dest)
+    for name in sorted(os.listdir(source_dir)):
+        src = os.path.join(source_dir, name)
+        if not os.path.isfile(src):
+            continue
+        if os.path.splitext(name)[1].lower() in SKIP_FOR_IMPORT:
+            continue
+        target = os.path.join(dest, name)
+        try:
+            os.link(src, target)
+        except OSError:
+            shutil.copy2(src, target)
+    return dest
+
+
+def fix_track_number(yml_path):
+    """Give the song a track number, because Magma refuses to build without one.
+
+    song.ini's album_track is often 0 or absent and Onyx passes that through, so
+    Magma stops at 'track_number: value is 0, which is less than the minimum
+    value of 1'.
+    """
+    with open(yml_path, encoding="utf-8") as fp:
+        text = fp.read()
+    found = re.search(r"^(?P<indent>[ \t]+)track-number:[ \t]*(?P<value>\S*)",
+                      text, re.M)
+    if found:
+        try:
+            if int(found.group("value")) >= 1:
+                return ""
+        except ValueError:
+            pass
+        was = found.group("value") or "unset"
+        text = (text[:found.start()] + found.group("indent")
+                + "track-number: 1" + text[found.end():])
+    else:
+        head = re.search(r"^metadata:[ \t]*$", text, re.M)
+        if not head:
+            return ""
+        was = "unset"
+        text = text[:head.end()] + "\n  track-number: 1" + text[head.end():]
+    with open(yml_path, "w", encoding="utf-8") as fp:
+        fp.write(text)
+    return ("track number was %s, which Magma will not build; it is now 1"
+            % was)
 
 
 def add_rb2_target(yml_path):
@@ -112,16 +187,35 @@ def build(settings, sid, source_dir, log=None):
         shutil.rmtree(d, ignore_errors=True)
     os.makedirs(work, exist_ok=True)
 
-    code, out = run([onyx, "import", source_dir, "--to", proj])
+    from_dir = source_dir
+    if not nameable(source_dir):
+        from_dir = stage_for_import(source_dir, os.path.join(work, "src"))
+        _say(log, "this folder's name has characters Onyx cannot print, so its "
+                  "files are imported from %s instead" % from_dir)
+
+    code, out = run([onyx, "import", from_dir, "--to", proj])
     if not os.path.exists(os.path.join(proj, "song.yml")):
         return False, "import failed: %s" % out.strip()[-200:]
 
     add_rb2_target(os.path.join(proj, "song.yml"))
+    note = fix_track_number(os.path.join(proj, "song.yml"))
+    if note:
+        _say(log, note)
     # Magma is strict about things the source charts get away with, and it runs
     # before we ever see the RB2 MIDI, so the fixes go in on the way through.
-    for line in midfix.fix_lyrics(os.path.join(proj, "notes.mid")):
+    # Parts the song does not offer go first, since a fault in one of those is
+    # no reason to fail the song.
+    notes = os.path.join(proj, "notes.mid")
+    for line in midfix.keep_only_parts(notes, parts):
         _say(log, line)
-    for line in midfix.fix_reductions(os.path.join(proj, "notes.mid")):
+    for line in midfix.fix_lyrics(notes):
+        _say(log, line)
+    for line in midfix.fix_vocal_phrases(notes):
+        _say(log, line)
+    # Before the reductions, which take their lanes from what Expert plays.
+    for line in midfix.fix_wide_chords(notes):
+        _say(log, line)
+    for line in midfix.fix_reductions(notes):
         _say(log, line)
 
     if os.path.exists(con):
