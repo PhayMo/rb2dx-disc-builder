@@ -52,6 +52,11 @@ A still `background.png` or `.jpg` is left alone, and that song gets an animated
 venue clip like any other. Clone Hero's animated highways are not backgrounds
 either: Rock Band 2 draws its own note track.
 
+Or set *Background* to *Black* on the Setup page and have no video at all, which
+is much the cheapest thing you can do to a disc - see *Choosing songs that fit*
+below. Then no video files are needed, and songs that brought their own are
+black behind too.
+
 **`ps2str.exe`**, from Sony's PS2 SDK. It muxes the video and audio together.
 It cannot be distributed with this tool, so you have to supply your own copy.
 Everything else - FFmpeg, Onyx, dtab and Mackiloha - the Setup page downloads
@@ -113,12 +118,23 @@ The stock Deluxe disc is 7.62 GiB and that is the default limit, because a disc
 that size is known to boot on real hardware. A song costs roughly 11 MB a minute
 at the default video quality, so a three minute song is about 40 MB.
 
+Two thirds of that is the video. Setting *Background* to *Black* on the Setup
+page spends it on songs instead: the same 33 songs that weigh 2.54 GB behind
+venue clips come to 0.99 GB against a black background, so about two and a half
+times as many fit. There is still a video stream in each song - the game reads
+its audio out of one and finds none without it - but black at 150 kbps costs
+almost nothing. You lose the venues; the note track, crowd and scoring are drawn
+by the game and look exactly as they always did.
+
 Which songs to leave off is up to you: the usage bar turns red and says how far
 over you are, and nothing is dropped behind your back. Sorting by *On disc* puts
 the most expensive songs at the top, which is the quickest way to claw back
 space, and the *Difficulty* column is there if you would rather thin out the
-hardest ones. Lowering the video quality on the Setup page is the other lever -
+hardest ones. Lowering the video quality on the Setup page is the gentler lever -
 it costs picture quality rather than songs.
+
+Changing either one rebuilds the songs already staged, since their video has to
+be encoded again, and the usage bar prices them at the new size straight away.
 
 The ISO stage refuses to write an image over the limit, so an over-full
 selection fails at the end rather than producing a disc that will not boot.
@@ -140,6 +156,7 @@ rebuilding after a change:
     python -m rb2dx setup --download
     python -m rb2dx setup --demo-songs keep
     python -m rb2dx setup --disc-folder yes
+    python -m rb2dx setup --background black
     python -m rb2dx scan
     python -m rb2dx plan
     python -m rb2dx build
@@ -185,7 +202,7 @@ Each song goes through these stages, and songs run in parallel:
 | charts | Onyx and Magma convert the chart to Rock Band 2 form; lyrics and lower difficulties are repaired first so Magma accepts them, and parts the song does not offer are dropped |
 | art | Album art becomes a 256x256 8-bit paletted PS2 texture |
 | vgs | The mix is encoded to PlayStation 4-bit ADPCM, lined up with the silence the chart converter put in front of the song |
-| video | The song's own video, or a venue clip if it has none, is encoded to MPEG-2 and muxed with the audio into a `.pss` |
+| video | The song's own video, a venue clip if it has none, or black, is encoded to MPEG-2 and muxed with the audio into a `.pss` |
 | archive | Song files and the compiled song list are injected into the game's archive, which is repacked |
 | iso | A bootable ISO9660/UDF image is written |
 | verify | Every shipped file is read back out of the archive and compared |

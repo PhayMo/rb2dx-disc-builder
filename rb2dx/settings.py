@@ -39,6 +39,10 @@ DEFAULTS = {
     "out_iso": "",
     "venue_dir": "",
     "video_kbps": 1500,
+    # What plays behind the songs: "venues" for background clips, or "black" for
+    # nothing at all. The video is about two thirds of what a song costs, so
+    # black fits roughly two and a half times as many of them.
+    "background": "venues",
     "ceiling_bytes": RETAIL_ISO_BYTES,
     "jobs": 6,
     # Drop the four songs the Custom Edition ships with, worth about 264 MB of
@@ -55,6 +59,21 @@ DEFAULTS = {
 
 VIDEO_EXT = (".mp4", ".webm", ".mkv", ".avi", ".mov", ".m4v", ".mpg", ".mpeg")
 
+BACKGROUNDS = ("venues", "black")
+
+# A black background still has to be encoded, because the game reads a song's
+# audio out of a video stream and finds none without one, but black at this rate
+# costs about a fiftieth of a real clip and looks no different for being cheap.
+BLACK_KBPS = 150
+
+
+def videos_in(folder):
+    """The video files in a folder, in a fixed order, or [] if it has none."""
+    if not folder or not os.path.isdir(folder):
+        return []
+    return sorted(f for f in os.listdir(folder)
+                  if f.lower().endswith(VIDEO_EXT))
+
 
 def bundled_venues():
     """The background videos that ship with the tool, if they are still there.
@@ -69,8 +88,7 @@ def bundled_venues():
         candidates.insert(0, os.path.join(
             os.path.dirname(os.path.abspath(sys.executable)), "venues"))
     for candidate in candidates:
-        if os.path.isdir(candidate) and any(
-                f.lower().endswith(VIDEO_EXT) for f in os.listdir(candidate)):
+        if videos_in(candidate):
             return candidate
     return ""
 
@@ -111,6 +129,8 @@ class Settings:
         self.out_iso = merged["out_iso"]
         self._venue_dir = merged["venue_dir"]
         self.video_kbps = int(merged["video_kbps"])
+        self.background = (merged["background"] if merged["background"]
+                           in BACKGROUNDS else "venues")
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         self.jobs = int(merged["jobs"])
         self.drop_demos = bool(merged["drop_demos"])
@@ -140,6 +160,7 @@ class Settings:
                 "out_iso": self.out_iso,
                 "venue_dir": self._venue_dir,
                 "video_kbps": self.video_kbps,
+                "background": self.background,
                 "ceiling_bytes": self.ceiling_bytes,
                 "jobs": self.jobs,
                 "drop_demos": self.drop_demos,
@@ -165,6 +186,16 @@ class Settings:
         # The bundled folder is not worth storing: remembering it by path would
         # break as soon as the tool is moved.
         self._venue_dir = "" if value and value == bundled_venues() else value
+
+    @property
+    def black_background(self):
+        """Nothing behind the songs, in exchange for much smaller ones."""
+        return self.background == "black"
+
+    @property
+    def encode_kbps(self):
+        """The bitrate the video stage really encodes at."""
+        return BLACK_KBPS if self.black_background else self.video_kbps
 
     def work_dir(self, *parts):
         if not self.work:
@@ -280,10 +311,11 @@ class Settings:
                        "fail on %s." % self.tmp)
         if not self.out_iso:
             out.append("Choose where to write the finished ISO.")
-        if not self.venue_dir or not os.path.isdir(self.venue_dir):
-            out.append("Choose a folder of background videos: every song needs "
-                       "one behind it, and the ones that came with this tool "
-                       "are missing.")
+        if not self.black_background and not videos_in(self.venue_dir):
+            out.append("Choose a folder holding background videos (%s): one "
+                       "plays behind every song, and the clips that came with "
+                       "this tool are missing. Or set the background to black."
+                       % ", ".join(VIDEO_EXT))
         return out
 
 

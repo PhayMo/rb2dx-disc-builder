@@ -49,6 +49,9 @@ def cmd_setup(args):
     if args.video:
         s.video_kbps = args.video
         changed = True
+    if args.background:
+        s.background = args.background
+        changed = True
     if args.jobs:
         s.jobs = args.jobs
         changed = True
@@ -110,9 +113,11 @@ def cmd_setup(args):
         print("  work         %s" % (s.work or "-"))
         print("  temp         %s" % (s.tmp or "-"))
         print("  output ISO   %s" % (s.out_iso or "-"))
+        print("  background   %s" % ("black" if s.black_background
+                                     else "venue videos"))
         print("  videos       %s%s" % (s.venue_dir or "-",
                                        "" if s._venue_dir else " (bundled)"))
-        print("  video        %d kbps" % s.video_kbps)
+        print("  video        %d kbps" % s.encode_kbps)
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
         print("  base songs   %s" % ("left out" if s.drop_demos else "kept"))
@@ -176,6 +181,8 @@ def cmd_build(args):
     s = load()
     if args.video:
         s.video_kbps = args.video
+    if args.background:
+        s.background = args.background
     if args.jobs:
         s.jobs = args.jobs
 
@@ -238,6 +245,9 @@ def main(argv=None):
     p.add_argument("--tmp", metavar="DIR")
     p.add_argument("--out", metavar="ISO")
     p.add_argument("--venue", metavar="DIR", help="folder of background videos")
+    p.add_argument("--background", choices=settings_mod.BACKGROUNDS,
+                   help="what plays behind the songs; black needs no videos "
+                        "and fits about two and a half times as many songs")
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--ceiling", type=float, metavar="GB")
@@ -266,6 +276,7 @@ def main(argv=None):
     p = sub.add_parser("build", help="build the disc")
     p.add_argument("--limit", type=int, metavar="N",
                    help="only the first N songs, for a quick test")
+    p.add_argument("--background", choices=settings_mod.BACKGROUNDS)
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--no-iso", action="store_true")

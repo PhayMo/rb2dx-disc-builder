@@ -20,6 +20,11 @@ VIDEO_PRESETS = [
     ("Smaller, 900 kbps", 900),
 ]
 
+BACKGROUND_PRESETS = [
+    ("Venue videos", "venues"),
+    ("Black - fits about two and a half times as many songs", "black"),
+]
+
 
 class SetupTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -71,8 +76,15 @@ class SetupTab(ttk.Frame):
             values=[name for name, _ in DISC_PRESETS]),
             hint="Staying at the stock size is safest: that disc is known to "
                  "work on real hardware.")
+        self.bg_var = tk.StringVar()
+        disc.add_row("Background", ttk.Combobox(
+            disc, textvariable=self.bg_var, state="readonly",
+            values=[name for name, _ in BACKGROUND_PRESETS]),
+            hint="The video behind each song is about two thirds of what that "
+                 "song costs. Black spends that on more songs instead, and "
+                 "needs no video files at all.")
         self.video_var = tk.StringVar()
-        disc.add_row("Video quality", ttk.Combobox(
+        self.video_box = disc.add_row("Video quality", ttk.Combobox(
             disc, textvariable=self.video_var, state="readonly",
             values=[name for name, _ in VIDEO_PRESETS]),
             hint="Lower quality fits more songs, at some cost to how the "
@@ -89,6 +101,7 @@ class SetupTab(ttk.Frame):
                  "them never appear in the setlist anyway; the fourth is "
                  "Afterlife.")
         self.disc_var.trace_add("write", lambda *_: self.push())
+        self.bg_var.trace_add("write", lambda *_: self.push())
         self.video_var.trace_add("write", lambda *_: self.push())
         self.jobs_var.trace_add("write", lambda *_: self.push())
         self.demos_var.trace_add("write", lambda *_: self.push())
@@ -140,7 +153,9 @@ class SetupTab(ttk.Frame):
         self.folder.set(s.disc_folder_path or self.suggested_folder)
         self.folder.enable(s.disc_folder)
         self.disc_var.set(_closest(DISC_PRESETS, s.ceiling_bytes))
+        self.bg_var.set(_closest(BACKGROUND_PRESETS, s.background))
         self.video_var.set(_closest(VIDEO_PRESETS, s.video_kbps))
+        self.show_background(s.black_background)
         self._loading = False
         self.refresh_tools()
 
@@ -173,11 +188,20 @@ class SetupTab(ttk.Frame):
         for name, value in DISC_PRESETS:
             if name == self.disc_var.get():
                 s.ceiling_bytes = value
+        for name, value in BACKGROUND_PRESETS:
+            if name == self.bg_var.get():
+                s.background = value
         for name, value in VIDEO_PRESETS:
             if name == self.video_var.get():
                 s.video_kbps = value
+        self.show_background(s.black_background)
         s.save()
         self.app.settings_changed()
+
+    def show_background(self, black):
+        """Nothing about the videos matters when the background is black."""
+        self.video_box.state(["disabled"] if black else ["!disabled", "readonly"])
+        self.venue.enable(not black)
 
     # ---- tools -------------------------------------------------------------
 

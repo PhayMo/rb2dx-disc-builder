@@ -31,6 +31,13 @@ SONG_STAGES = [
     ("video", "encoding video"),
 ]
 
+ALL_STAGES = frozenset(name for name, _ in SONG_STAGES)
+
+# The parts of a song's stamp that only the video stage reads. Change one of
+# these - the background, or the bitrate behind it - and the song's audio, chart
+# and art are still good, so only its video is encoded again.
+VIDEO_KEYS = ("video_kbps", "background", "video")
+
 # ps2str takes short plain filenames in a fixed scratch folder, so only one song
 # can be muxed at a time.
 _MUX_LOCK = threading.Lock()
@@ -103,12 +110,16 @@ class Pipeline:
             except OSError:
                 stems.append([name, 0, 0])
         sig = {"source": song.path, "stems": stems,
-               "video_kbps": self.settings.video_kbps,
+               "video_kbps": self.settings.encode_kbps,
                "format": FORMAT}
+        # Only songs affected carry the keys below, so nothing already built is
+        # disturbed by one of them appearing.
+        if self.settings.black_background:
+            sig["background"] = "black"
         # A folder's own video plays behind that song, so swapping it has to
-        # rebuild the song the way a changed stem does. Only songs that have one
-        # carry the key, so nothing already built is disturbed by it appearing.
-        own = video.song_video(song.path)
+        # rebuild the song the way a changed stem does. Black ignores it, and
+        # then it has no bearing on what gets built.
+        own = "" if self.settings.black_background else video.song_video(song.path)
         if own:
             try:
                 st = os.stat(own)
@@ -119,14 +130,19 @@ class Pipeline:
         return sig
 
     def _stale(self, song):
-        path = self._stamp_path(song.sid)
-        if not os.path.exists(path):
-            return True
+        """Which of this song's stages have to run again."""
         try:
-            with open(path, encoding="utf-8") as fp:
-                return json.load(fp) != self._signature(song)
-        except ValueError:
-            return True
+            with open(self._stamp_path(song.sid), encoding="utf-8") as fp:
+                built = json.load(fp)
+        except (OSError, ValueError):
+            return ALL_STAGES
+        want = self._signature(song)
+        if built == want:
+            return frozenset()
+        rest = lambda sig: {k: v for k, v in sig.items() if k not in VIDEO_KEYS}
+        if rest(built) == rest(want):
+            return frozenset(["video"])
+        return ALL_STAGES
 
     def _write_stamp(self, song):
         with open(self._stamp_path(song.sid), "w", encoding="utf-8") as fp:
@@ -158,14 +174,17 @@ class Pipeline:
     def _build_song(self, song):
         """All stages for one song. Returns (song, stage, reason) on failure."""
         self._check()
-        force = self._stale(song)
-        if force:
+        stale = self._stale(song)
+        if stale == ALL_STAGES:
             self.log("%s: source changed, rebuilding" % song.label)
+        elif stale:
+            self.log("%s: background changed, encoding its video again"
+                     % song.label)
 
         for name, doing in SONG_STAGES:
             self._check()
             try:
-                ok, message = self._run_stage(name, song, force)
+                ok, message = self._run_stage(name, song, name in stale)
             except Cancelled:
                 raise
             except BuildError as exc:

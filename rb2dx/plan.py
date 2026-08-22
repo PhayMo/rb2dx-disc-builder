@@ -32,12 +32,26 @@ def estimate(song, video_kbps):
     return audio + video
 
 
+def built_at(settings, sid):
+    """The bitrate a staged song's video was encoded at, or None if unknown."""
+    stamp = os.path.join(settings.work, "stamps", "%s.json" % sid)
+    try:
+        with open(stamp, encoding="utf-8") as fp:
+            return json.load(fp).get("video_kbps")
+    except (OSError, ValueError):
+        return None
+
+
 def measured(settings):
     """What each already-built song really costs, keyed by its source folder.
 
     The estimate above is close but runs a little under, mostly because the .pss
     container adds its own overhead, so anything already staged is weighed for
     real instead.
+
+    Songs built at another bitrate are left to the estimate: turning the
+    background black rebuilds them a third of the size, and pricing them as they
+    stand would hide the room that frees up.
     """
     from . import ark
 
@@ -48,6 +62,9 @@ def measured(settings):
     for sid in os.listdir(stage):
         layout = os.path.join(stage, sid, "layout.json")
         if not os.path.exists(layout):
+            continue
+        was = built_at(settings, sid)
+        if was is not None and was != settings.encode_kbps:
             continue
         try:
             with open(layout, encoding="utf-8") as fp:
@@ -73,7 +90,7 @@ def price(settings, songs):
     """Attach a byte cost to every song, measuring the ones already built."""
     built = measured(settings)
     for song in songs:
-        song.bytes = built.get(song.path) or estimate(song, settings.video_kbps)
+        song.bytes = built.get(song.path) or estimate(song, settings.encode_kbps)
         song.priced_from_build = song.path in built
     return songs
 

@@ -31,6 +31,7 @@ import subprocess
 from . import proc
 from .errors import BuildError
 from .library import read_ini
+from .settings import VIDEO_EXT, videos_in
 
 # Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail uses
 # 2000 kbit/s; 1500 is the tutorial's recommendation and buys ~8 MB of disc,
@@ -54,7 +55,6 @@ TAIL_SLACK = 2.0
 SAMPLES_PER_BLOCK = 28
 ADPCM_BLOCK = 16
 
-VENUE_EXTS = (".mp4", ".webm", ".mkv", ".avi", ".mov")
 # A song folder can carry its own video, which Clone Hero plays behind that song
 # and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
 # charts use background.<ext> for the same thing, next to the still image of that
@@ -64,7 +64,7 @@ VENUE_EXTS = (".mp4", ".webm", ".mkv", ".avi", ".mov")
 # players. Its animated highways are .webm too, but the highway is not a
 # background: Rock Band 2 draws its own, so those are left alone.
 SONG_VIDEO_NAMES = ("video", "background")
-SONG_VIDEO_EXTS = VENUE_EXTS + (".ogv", ".mpeg", ".mpg", ".m4v")
+SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
 
 
 def vgs_info(path):
@@ -100,13 +100,6 @@ def data_rate(rate, channels):
     return int(ADPCM_BLOCK * rate / SAMPLES_PER_BLOCK) * channels + 100
 
 
-def venue_videos(venue_dir):
-    if not venue_dir or not os.path.isdir(venue_dir):
-        return []
-    return [f for f in sorted(os.listdir(venue_dir))
-            if f.lower().endswith(VENUE_EXTS)]
-
-
 def song_video(source_dir):
     """The video a song folder brought with it, or "" if it has none."""
     if not source_dir or not os.path.isdir(source_dir):
@@ -119,12 +112,12 @@ def song_video(source_dir):
 
 
 def pick_venue(sid, venue_dir):
-    vids = venue_videos(venue_dir)
+    vids = videos_in(venue_dir)
     if not vids:
         raise BuildError(
-            "There are no background videos to play behind the songs. Choose a "
-            "folder holding video files (%s) as the venue folder."
-            % ", ".join(VENUE_EXTS))
+            "There are no background videos to play behind the songs. Point the "
+            "venue folder at some video files (%s), or set the background to "
+            "black." % ", ".join(VIDEO_EXT))
     # Seed from the song id so a rebuild picks the same clip.
     seed = int(hashlib.md5(sid.encode()).hexdigest()[:8], 16)
     return os.path.join(venue_dir, random.Random(seed).choice(vids))
@@ -162,18 +155,25 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
     start skips that far into the source and delay puts that much extra black in
-    front of it, which is how a song's own video is lined up with its audio.
+    front of it, which is how a song's own video is lined up with its audio. An
+    empty src means a black background, generated here rather than read from a
+    file: there is nothing to loop, scale or line up, so the whole stream is
+    black and the bitrate can be a fraction of a real clip's.
     """
-    vf = ("scale=%d:%d:force_original_aspect_ratio=increase,"
-          "crop=%d:%d,fps=%s,tpad=start_duration=%s:start_mode=add:color=black"
-          % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS, LEAD_IN + delay))
-    kbps = settings.video_kbps
-    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
-           "-stream_loop", "-1"]
-    if start:
-        cmd += ["-ss", "%.3f" % start]
-    cmd += ["-i", src,
-            "-an", "-vf", vf, "-t", "%.3f" % seconds,
+    kbps = settings.encode_kbps
+    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
+    if src:
+        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,"
+              "crop=%d:%d,fps=%s,tpad=start_duration=%s:start_mode=add:color=black"
+              % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS, LEAD_IN + delay))
+        cmd += ["-stream_loop", "-1"]
+        if start:
+            cmd += ["-ss", "%.3f" % start]
+        cmd += ["-i", src, "-vf", vf]
+    else:
+        cmd += ["-f", "lavfi", "-i", "color=c=black:s=%dx%d:r=%s"
+                % (WIDTH, HEIGHT, FPS)]
+    cmd += ["-an", "-t", "%.3f" % seconds,
             "-c:v", "mpeg2video",
             "-b:v", "%dk" % kbps,
             "-minrate", "%dk" % kbps,
@@ -246,15 +246,20 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     info = vgs_info(vgs)
     rate = data_rate(info["rate"], info["channels"])
     vid_secs = max(1.0, info["seconds"] - TAIL_SLACK)
-    venue, own = choose_video(sid, venue_dir, source_dir)
+    # A black background is black behind every song, so a folder's own video is
+    # passed over along with the venue clips.
+    if settings.black_background:
+        venue, own = "", False
+    else:
+        venue, own = choose_video(sid, venue_dir, source_dir)
     start, delay = video_offset(source_dir) if own else (0.0, 0.0)
+    what = "black" if not venue else os.path.basename(venue)
 
     if log:
         log("audio: %d ch @ %d Hz, %.2fs (VGS v%d) -> %d bytes/sec"
             % (info["channels"], info["rate"], info["seconds"],
                info["version"], rate))
-        log("%s: %s%s" % ("the song's own video" if own else "venue",
-                          os.path.basename(venue),
+        log("%s: %s%s" % ("the song's own video" if own else "background", what,
                           (", from %.2fs in" % start) if start else
                           (", %.2fs of black first" % delay) if delay else ""))
 
@@ -270,5 +275,5 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
 
     mux(settings, m2v, vgs, pss, rate)
     return True, ("%s, %d ch audio, %.1f MB pss"
-                  % (os.path.basename(venue), info["channels"],
+                  % (what, info["channels"],
                      os.path.getsize(pss) / 1048576.0))
