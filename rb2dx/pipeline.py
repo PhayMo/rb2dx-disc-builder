@@ -50,6 +50,7 @@ class Result:
         self.problems = []      # (song, stage, reason)
         self.iso = ""
         self.iso_bytes = 0
+        self.folder = ""
         self.report = []
         self.seconds = 0.0
         self.cancelled = False
@@ -266,6 +267,11 @@ class Pipeline:
                 self.on_stage("Writing the disc image")
                 result.iso = iso.build(settings, log=self.log)
                 result.iso_bytes = os.path.getsize(result.iso)
+
+            if settings.disc_folder:
+                self._check()
+                self.on_stage("Writing the disc folder")
+                result.folder = iso.export_folder(settings, log=self.log)
 
             if do_verify:
                 self._check()

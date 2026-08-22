@@ -6,6 +6,7 @@ interchange level 1 (8.3, uppercase, ";1" versions) mirror the retail disc.
 """
 
 import os
+import shutil
 import time
 
 import pycdlib
@@ -67,6 +68,55 @@ def check_ceiling(settings, nbytes):
             "GB limit. Drop some songs from the list and build again."
             % (nbytes / 1073741824.0, over / 1048576.0,
                settings.ceiling_bytes / 1073741824.0))
+
+
+def folder_beside(iso_path):
+    """The default home for the loose disc files: next to the ISO."""
+    return os.path.splitext(iso_path)[0] + " disc" if iso_path else ""
+
+
+def folder_for(settings):
+    """Where the loose disc files go: wherever asked, or beside the ISO."""
+    return settings.disc_folder_path or folder_beside(settings.out_iso)
+
+
+def export_folder(settings, log=None):
+    """Lay the disc's files out in a folder. Returns its path.
+
+    PCSX2 will not boot an image written here, so this gives anyone playing in
+    an emulator the disc's contents to hand to ImgBurn instead. Files are linked
+    rather than copied where the filesystem allows it, so a second copy of the
+    archive costs no space.
+    """
+    if not settings.out_iso:
+        raise BuildError("Choose where to write the finished ISO first; the "
+                         "disc folder goes beside it.")
+    items = collect(settings)
+    dest = folder_for(settings)
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+
+    linked = copied = 0
+    for src, iso_path in items:
+        # "/GEN/MAIN_0.ARK;1" is a file named MAIN_0.ARK in a folder named GEN.
+        parts = iso_path.strip("/").split("/")
+        parts[-1] = parts[-1].rsplit(";", 1)[0]
+        target = os.path.join(dest, *parts)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        try:
+            os.link(src, target)
+            linked += 1
+        except OSError:
+            # A different drive, or a filesystem without hard links.
+            shutil.copy2(src, target)
+            copied += 1
+
+    if log:
+        log("Disc folder: %s" % dest)
+        log("  %d files linked, %d copied" % (linked, copied))
+        log("  Build the image from this folder with ImgBurn: Build mode, "
+            "ISO9660 + UDF 1.02, everything at the root.")
+    return dest
 
 
 def build(settings, log=None):

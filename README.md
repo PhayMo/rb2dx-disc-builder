@@ -89,6 +89,24 @@ Then, on each page in turn:
 
 Burn the ISO to a DVD-R, or run it from a hard drive loader.
 
+## Playing in an emulator
+
+A real PS2 boots the ISO this tool writes; PCSX2 does not. With identical files
+on it, an image written here fails where one written by ImgBurn boots, so it is
+in how the image is put together rather than anything on the disc.
+
+So tick *Also save the disc's files in a folder*, under *Save the ISO as* on the
+Setup page. The build then leaves the disc's contents in the folder named in
+*Save the folder as* - beside the ISO unless you point it somewhere else - and
+you make the image yourself: open [ImgBurn](https://www.imgburn.com/), choose
+*Build*, set the destination to an image file, drop that folder in as the source,
+and on the *Options* tab pick file system *ISO9660 + UDF* with UDF revision
+1.02. Everything lands at the root of the disc, which is where the console
+expects it.
+
+The folder costs no disc space worth speaking of: its files are hard links to the
+ones the build already wrote, as long as both sit on the same drive.
+
 ## Choosing songs that fit
 
 The stock Deluxe disc is 7.62 GiB and that is the default limit, because a disc
@@ -121,6 +139,7 @@ rebuilding after a change:
     python -m rb2dx setup --add-library "D:\Charts\Rock Band 3"
     python -m rb2dx setup --download
     python -m rb2dx setup --demo-songs keep
+    python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
     python -m rb2dx plan
     python -m rb2dx build
@@ -135,7 +154,8 @@ Failures are remembered so later builds do not stall on the same song; *Try the
 failed songs again* clears that.
 
 **The disc will not boot.** Check the ISO is not larger than the size limit, and
-that the game folder you pointed at boots as-is.
+that the game folder you pointed at boots as-is. In PCSX2 it never will - see
+*Playing in an emulator* above.
 
 **A song hangs on the loading screen or crashes as it loads.** Almost always a
 song list entry that promises something the song cannot deliver: an instrument

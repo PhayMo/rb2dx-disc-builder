@@ -31,6 +31,9 @@ class ResultsTab(ttk.Frame):
         self.show_btn = ttk.Button(buttons, text="Show the ISO",
                                    command=self.show_iso, state="disabled")
         self.show_btn.pack(side="left")
+        self.folder_btn = ttk.Button(buttons, text="Show the disc folder",
+                                     command=self.show_folder, state="disabled")
+        self.folder_btn.pack(side="left", padx=6)
         self.retry_btn = ttk.Button(buttons, text="Try the failed songs again",
                                     command=self.retry, state="disabled")
         self.retry_btn.pack(side="left", padx=6)
@@ -77,11 +80,14 @@ class ResultsTab(ttk.Frame):
         if result.iso:
             bits.insert(0, "%s, %s" % (os.path.basename(result.iso),
                                        human(result.iso_bytes)))
+        if result.folder:
+            bits.append("disc folder written for ImgBurn")
         if result.problems:
             bits.append("%d songs left off" % len(result.problems))
         self.detail.config(text="  -  ".join(bits))
 
         self.show_btn.state(["!disabled"] if result.iso else ["disabled"])
+        self.folder_btn.state(["!disabled"] if result.folder else ["disabled"])
         self.retry_btn.state(["!disabled"] if result.problems else ["disabled"])
 
         self.tree.delete(*self.tree.get_children())
@@ -98,6 +104,10 @@ class ResultsTab(ttk.Frame):
     def show_iso(self):
         if self.result and self.result.iso:
             reveal(self.result.iso)
+
+    def show_folder(self):
+        if self.result and self.result.folder:
+            reveal(self.result.folder)
 
     def retry(self):
         """Forget the recorded failures so the next build attempts them again."""

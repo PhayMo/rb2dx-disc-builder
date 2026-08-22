@@ -44,6 +44,11 @@ DEFAULTS = {
     # Drop the four songs the Custom Edition ships with, worth about 264 MB of
     # room for your own. See ark.DEMO_SONGS for what they are.
     "drop_demos": True,
+    # Also write the disc's files to a folder, for emulator users who need to
+    # make the image with ImgBurn. See iso.export_folder. Left empty, the folder
+    # goes beside the ISO.
+    "disc_folder": False,
+    "disc_folder_path": "",
     "tools": {},
 }
 
@@ -109,6 +114,8 @@ class Settings:
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         self.jobs = int(merged["jobs"])
         self.drop_demos = bool(merged["drop_demos"])
+        self.disc_folder = bool(merged["disc_folder"])
+        self.disc_folder_path = merged["disc_folder_path"]
         self.tools = dict(merged["tools"])
 
     # ---- loading and saving ------------------------------------------------
@@ -136,6 +143,8 @@ class Settings:
                 "ceiling_bytes": self.ceiling_bytes,
                 "jobs": self.jobs,
                 "drop_demos": self.drop_demos,
+                "disc_folder": self.disc_folder,
+                "disc_folder_path": self.disc_folder_path,
                 "tools": self.tools,
             }, fp, indent=2)
         return path

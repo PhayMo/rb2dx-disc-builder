@@ -118,10 +118,16 @@ class PathRow:
         frame.columnconfigure(0, weight=1)
         self.entry = ttk.Entry(frame, textvariable=self.var)
         self.entry.grid(row=0, column=0, sticky="ew")
-        ttk.Button(frame, text="Browse...", width=10,
-                   command=self.browse).grid(row=0, column=1, padx=(6, 0))
+        self.button = ttk.Button(frame, text="Browse...", width=10,
+                                 command=self.browse)
+        self.button.grid(row=0, column=1, padx=(6, 0))
         section.add_row(label, frame, hint=hint)
         self.var.trace_add("write", lambda *_: self.on_change and self.on_change())
+
+    def enable(self, on):
+        """Grey the row out when the thing it configures is switched off."""
+        for widget in (self.entry, self.button):
+            widget.state(["!disabled"] if on else ["disabled"])
 
     def browse(self):
         current = self.var.get()

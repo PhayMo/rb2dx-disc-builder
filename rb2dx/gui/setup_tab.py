@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import settings as settings_mod, tools
+from .. import iso, settings as settings_mod, tools
 from .common import PAD, PathRow, ScrollFrame, Section
 
 DISC_PRESETS = [
@@ -25,6 +25,7 @@ class SetupTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent, padding=PAD)
         self.app = app
+        self.suggested_folder = ""
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -53,6 +54,14 @@ class SetupTab(ttk.Frame):
             on_change=self.push)
         self.iso = PathRow(files, "Save the ISO as", kind="file",
                            on_change=self.push)
+        self.folder_var = tk.BooleanVar(value=False)
+        files.add_row("For emulators", ttk.Checkbutton(
+            files, text="Also save the disc's files in a folder",
+            variable=self.folder_var),
+            hint="PCSX2 will not boot the ISO written here, though a real PS2 "
+                 "will. Tick this and build the image from the folder with "
+                 "ImgBurn instead: Build mode, ISO9660 + UDF 1.02.")
+        self.folder = PathRow(files, "Save the folder as", on_change=self.push)
 
         disc = Section(page, "Disc")
         disc.grid(row=1, column=0, sticky="ew", pady=(PAD, 0))
@@ -83,6 +92,7 @@ class SetupTab(ttk.Frame):
         self.video_var.trace_add("write", lambda *_: self.push())
         self.jobs_var.trace_add("write", lambda *_: self.push())
         self.demos_var.trace_add("write", lambda *_: self.push())
+        self.folder_var.trace_add("write", lambda *_: self.push())
 
         tools_box = Section(page, "Tools")
         tools_box.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
@@ -125,6 +135,10 @@ class SetupTab(ttk.Frame):
         self.iso.set(s.out_iso)
         self.jobs_var.set(s.jobs)
         self.demos_var.set(s.drop_demos)
+        self.folder_var.set(s.disc_folder)
+        self.suggested_folder = iso.folder_beside(s.out_iso)
+        self.folder.set(s.disc_folder_path or self.suggested_folder)
+        self.folder.enable(s.disc_folder)
         self.disc_var.set(_closest(DISC_PRESETS, s.ceiling_bytes))
         self.video_var.set(_closest(VIDEO_PRESETS, s.video_kbps))
         self._loading = False
@@ -145,6 +159,17 @@ class SetupTab(ttk.Frame):
         except (tk.TclError, ValueError):
             pass
         s.drop_demos = bool(self.demos_var.get())
+        s.disc_folder = bool(self.folder_var.get())
+        self.folder.enable(s.disc_folder)
+        # The folder follows the ISO's name until the user names it themselves,
+        # so choosing a different ISO moves it too.
+        suggested = iso.folder_beside(self.iso.get())
+        typed = self.folder.get()
+        if typed != suggested and (not typed or typed == self.suggested_folder):
+            self.folder.set(suggested)
+            typed = suggested
+        self.suggested_folder = suggested
+        s.disc_folder_path = "" if typed == suggested else typed
         for name, value in DISC_PRESETS:
             if name == self.disc_var.get():
                 s.ceiling_bytes = value

@@ -14,7 +14,7 @@ import argparse
 import os
 import sys
 
-from . import library, plan as planner, settings as settings_mod, tools
+from . import iso, library, plan as planner, settings as settings_mod, tools
 from .errors import BuildError
 from .settings import Settings, SettingsError
 
@@ -57,6 +57,12 @@ def cmd_setup(args):
         changed = True
     if args.demo_songs:
         s.drop_demos = args.demo_songs == "drop"
+        changed = True
+    if args.disc_folder:
+        s.disc_folder = args.disc_folder == "yes"
+        changed = True
+    if args.disc_folder_path:
+        s.disc_folder_path = os.path.abspath(args.disc_folder_path)
         changed = True
     if args.add_library:
         path = os.path.abspath(args.add_library)
@@ -110,6 +116,8 @@ def cmd_setup(args):
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
         print("  base songs   %s" % ("left out" if s.drop_demos else "kept"))
+        print("  disc folder  %s" % (iso.folder_for(s) if s.disc_folder
+                                     else "no"))
         print("  libraries")
         for lib in s.libraries:
             print("    %-40s%s" % (lib.name,
@@ -197,6 +205,8 @@ def cmd_build(args):
         print("  %s" % line)
     if result.iso:
         print("\nISO: %s (%s)" % (result.iso, human(result.iso_bytes)))
+    if result.folder:
+        print("Disc folder: %s" % result.folder)
     return 1 if result.cancelled else 0
 
 
@@ -233,6 +243,11 @@ def main(argv=None):
     p.add_argument("--ceiling", type=float, metavar="GB")
     p.add_argument("--demo-songs", choices=("keep", "drop"),
                    help="the four songs the base game ships with")
+    p.add_argument("--disc-folder", choices=("yes", "no"),
+                   help="also write the disc's files to a folder, to make the "
+                        "image with ImgBurn for PCSX2")
+    p.add_argument("--disc-folder-path", metavar="DIR",
+                   help="where that folder goes; beside the ISO by default")
     p.add_argument("--add-library", metavar="DIR")
     p.add_argument("--remove-library", metavar="DIR")
     p.add_argument("--set-tool", nargs=2, metavar=("NAME", "PATH"))
