@@ -165,6 +165,13 @@ Both share one settings file, in `%LOCALAPPDATA%\rb2dxbuilder\settings.json`.
 
 ## When something goes wrong
 
+**A tool will not download.** FFmpeg comes from gyan.dev, and if that site is
+unreachable or its certificate has lapsed, the same build is fetched from its
+GitHub releases instead, so pressing the button again is usually all it takes. If
+every source fails, the message says which and why - a certificate refused for
+being out of date can also mean this machine's clock is wrong - and *Locate* will
+take a copy you download yourself.
+
 **A song is left off the disc.** The Results page says which stage it failed and
 why. Missing album art and charts that Magma rejects are the usual causes.
 Failures are remembered so later builds do not stall on the same song; *Try the
@@ -175,8 +182,15 @@ away with, Rock Band's compiler will not, and these are put right on the way
 through rather than costing you the song: an album track number of zero, chords
 of four or five gems where the game can draw three, vocal phrases nested inside
 one another, and lyrics belonging to a part the song does not offer, which are
-dropped along with it. Folder names holding characters the console cannot print
-are handled too.
+dropped along with it. Charts that end abruptly are handled as well - a second
+`[end]` marker, or one struck so close to the last note that the converter's own
+tidying lands past it - as are sung notes with no syllable on them, a syllable
+sitting just off its note, and two notes sounding at once where the game sings
+one. Folder names holding characters the console cannot print are fine too.
+
+Whatever is left is reported in the song's own words: the Results page gives the
+compiler's complaint and where the full log sits, one file per song under
+`charts` in your work folder.
 
 **The disc will not boot.** Check the ISO is not larger than the size limit, and
 that the game folder you pointed at boots as-is. In PCSX2 it never will - see

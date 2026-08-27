@@ -4,3 +4,4 @@
 
 numpy>=1.20        # the PlayStation ADPCM encoder
 pycdlib>=1.11      # writing the ISO
+certifi            # fallback root certificates, when Windows' own are refused

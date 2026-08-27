@@ -186,6 +186,22 @@ def is_note(ev):
     return (ev[0] & 0xF0) in (0x80, 0x90)
 
 
+def is_end_of_track(ev):
+    return ev[0] == 0xFF and ev[1] == 0x2F
+
+
+def event_text(ev):
+    """The text a meta event carries, or None if it carries none."""
+    if ev[0] == 0xFF and ev[1] in (0x01, 0x05):
+        length, j = read_varlen(ev, 2)
+        return ev[j:j + length]
+    return None
+
+
+def text_event(text):
+    return b"\xFF\x01" + write_varlen(len(text)) + text
+
+
 DIFF_BASES = {"easy": 60, "medium": 72, "hard": 84, "expert": 96}
 REDUCED_TRACKS = ("PART GUITAR", "PART BASS")
 
@@ -465,6 +481,184 @@ def fix_wide_chords(path):
     with open(path, "wb") as fp:
         fp.write(bytes(out))
     return fixed
+
+
+def write_mid(path, fmt, div, tracks):
+    out = bytearray(b"MThd" + struct.pack(">IHHH", 6, fmt, len(tracks), div))
+    for events in tracks:
+        body = build_track(events)
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    with open(path, "wb") as fp:
+        fp.write(bytes(out))
+
+
+END_TEXT = b"[end]"
+# How much room the marker gets past the last event, in beats. Onyx holds a
+# venue note to a minimum length of an eighth of a beat, so this only has to be
+# more than that.
+END_ROOM_BEATS = 1
+
+
+def fix_end_marker(path):
+    """Leave one [end] marker, clear of everything else in the chart.
+
+    Magma stops at 'Found event(s) after the [end] event'. Two things cause it:
+    a chart carrying a second [end] with events between the two, and a venue
+    note struck on the last beat, which Onyx lengthens on the way through so its
+    note-off lands past the marker. One marker a beat clear of the last event
+    answers both.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    def marker(ev):
+        return (event_text(ev) or b"").strip() == END_TEXT
+
+    ends = [tick for events in tracks for tick, ev in events if marker(ev)]
+    if not ends:
+        # Onyx places its own, and puts it clear of the chart by itself.
+        return []
+    last = max((tick for events in tracks for tick, ev in events
+                if not is_end_of_track(ev) and not marker(ev)), default=0)
+    target = last + div * END_ROOM_BEATS
+    if len(ends) == 1 and ends[0] >= target:
+        return []
+
+    home = next(idx for idx, events in enumerate(tracks)
+                if any(marker(ev) for _, ev in events))
+    for idx, events in enumerate(tracks):
+        out = [(tick, ev) for tick, ev in events
+               if not marker(ev) and not is_end_of_track(ev)]
+        if idx == home:
+            out.append((target, text_event(END_TEXT)))
+        out.sort(key=lambda pair: pair[0])
+        stop = max([target if idx == home else 0]
+                   + [tick for tick, _ in out])
+        out.append((stop, b"\xFF\x2F\x00"))
+        tracks[idx] = out
+
+    write_mid(path, fmt, div, tracks)
+    if len(ends) > 1:
+        return ["kept one [end] marker of %d and moved it past the last event, "
+                "which Magma insists nothing follows" % len(ends)]
+    return ["moved [end] a beat later, to %.1f beats past the last event, which "
+            "Magma insists nothing follows" % ((target - last) / float(div))]
+
+
+# What a sung note can be. Below this are the phrase and range markers, above it
+# the overdrive and percussion pitches, and none of those carry a lyric.
+VOCAL_LOW, VOCAL_HIGH = 36, 84
+# How far from its note a lyric can sit and still be meant for it, as a share of
+# the beat. A quarter covers what editors leave behind - the charts this was
+# written for are out by a sixteenth note - while staying well short of the gap
+# between one syllable and the next.
+LYRIC_SNAP_BEAT = 4
+
+
+def _vocal_notes(events):
+    """[(start, end, index of note-on, index of note-off)] for the sung notes."""
+    notes, open_at = [], {}
+    for idx, (tick, ev) in enumerate(events):
+        if not is_note(ev) or not VOCAL_LOW <= ev[1] <= VOCAL_HIGH:
+            continue
+        if note_on(ev):
+            open_at.setdefault(ev[1], []).append((tick, idx))
+        elif open_at.get(ev[1]):
+            start, start_idx = open_at[ev[1]].pop(0)
+            notes.append([start, tick, start_idx, idx])
+    notes.sort()
+    return notes
+
+
+def fix_vocal_notes(path):
+    """Give every sung note its own lyric and its own stretch of time.
+
+    Rock Band sings one syllable per note and one note at a time, and Magma
+    reports a chart that strays from either as a misaligned or missing lyric, a
+    misaligned note, or a double note-on. Three things put it right: a lyric
+    near a note moves onto it, a note left with no lyric at all is dropped, and
+    a note running into the next one is shortened to meet it.
+    """
+    fmt, div, tracks = read_mid(path)
+    snap = max(1, div // LYRIC_SNAP_BEAT)
+
+    fixed = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events).upper()
+        if "VOCALS" not in name and not name.startswith("HARM"):
+            continue
+
+        notes = _vocal_notes(events)
+        if not notes:
+            continue
+        # Bracketed text is an instruction to the venue, not something sung.
+        lyrics = [(tick, i) for i, (tick, ev) in enumerate(events)
+                  if (event_text(ev) or b"[").lstrip()[:1] != b"["]
+        starts = {n[0] for n in notes}
+        # A note already sung on cannot take a second syllable.
+        taken = starts & {tick for tick, _ in lyrics}
+
+        moved = {}
+        for tick, i in lyrics:
+            if tick in starts:
+                continue
+            near = [n[0] for n in notes
+                    if abs(n[0] - tick) <= snap and n[0] not in taken]
+            if not near:
+                continue
+            to = min(near, key=lambda start: (abs(start - tick), start))
+            moved[i] = to
+            taken.add(to)
+        sung = {tick for tick, i in lyrics} | set(moved.values())
+
+        drop = set()
+        for note in notes:
+            if note[0] not in sung:
+                drop.add(note[2])
+                drop.add(note[3])
+        kept = [n for n in notes if n[2] not in drop]
+
+        shortened = {}
+        for note, after in zip(kept, kept[1:]):
+            if note[1] > after[0]:
+                shortened[note[3]] = after[0]
+
+        if not (moved or drop or shortened):
+            continue
+
+        out = []
+        for i, (tick, ev) in enumerate(events):
+            if i in drop:
+                continue
+            out.append((moved.get(i, shortened.get(i, tick)), ev))
+        # A note that now ends where the next begins has to say so before the
+        # next one starts, or a parser reads the two as one note held twice.
+        out.sort(key=lambda pair: (pair[0], _vocal_order(pair[1])))
+        tracks[idx] = out
+
+        said = []
+        if moved:
+            said.append("moved %d lyric%s onto the note it belongs to"
+                        % (len(moved), "" if len(moved) == 1 else "s"))
+        if drop:
+            said.append("dropped %d note%s with nothing to sing on it"
+                        % (len(drop) // 2, "" if len(drop) == 2 else "s"))
+        if shortened:
+            said.append("shortened %d note%s that ran into the next"
+                        % (len(shortened), "" if len(shortened) == 1 else "s"))
+        fixed.append("%s: %s" % (name, ", ".join(said)))
+
+    if fixed:
+        write_mid(path, fmt, div, tracks)
+    return fixed
+
+
+def _vocal_order(ev):
+    """Where an event sits among others on the same tick."""
+    if is_note(ev) and not note_on(ev):
+        return 0
+    if is_end_of_track(ev):
+        return 3
+    return 1 if not note_on(ev) else 2
 
 
 def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,

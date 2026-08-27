@@ -13,7 +13,10 @@ import glob
 import json
 import os
 import shutil
+import ssl
 import subprocess
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -23,24 +26,54 @@ USER_AGENT = "rb2dxbuilder"
 
 
 class Tool:
-    def __init__(self, key, exe, purpose, source, finder=None, probe=None,
+    def __init__(self, key, exe, purpose, source, finders=(), probe=None,
                  manual=None):
         self.key = key
         self.exe = exe
         self.purpose = purpose
         self.source = source
-        self.finder = finder          # returns a download URL, or None
+        # Each returns a download URL, tried in the order given, so a site that
+        # is down or refusing to serve costs a moment rather than the download.
+        self.finders = tuple(finders)
         self.probe = probe or [exe]   # arguments that make it print something
         self.manual = manual          # why the user must supply it themselves
 
     @property
     def downloadable(self):
-        return self.finder is not None
+        return bool(self.finders)
+
+
+def _spare_certificates():
+    """A context trusting the certificate list certifi ships, or None if absent.
+
+    Windows collects most root certificates as it first needs them and keeps
+    expired ones alongside, so a machine that has never had to verify a
+    particular root cannot, and says a certificate has expired when it means it
+    has none to check against. Nobody downloading FFmpeg can put that right, so
+    a refused certificate gets one more try against a list of our own.
+    """
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def _open(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as exc:
+        spare = None
+        if isinstance(getattr(exc, "reason", None), ssl.SSLCertVerificationError):
+            spare = _spare_certificates()
+        if spare is None:
+            raise
+        return urllib.request.urlopen(req, timeout=timeout, context=spare)
 
 
 def _get_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=60) as fp:
+    with _open(url, 60) as fp:
         return json.load(fp)
 
 
@@ -59,6 +92,13 @@ def _ffmpeg_url():
     # This name always points at the current release and redirects to the
     # versioned zip.
     return "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
+
+def _ffmpeg_mirror():
+    # The same builds, published as GitHub releases: the zip is byte for byte
+    # what gyan.dev serves.
+    return _github_asset("GyanD/codexffmpeg",
+                         lambda n: n.endswith("essentials_build.zip"))
 
 
 def _onyx_url():
@@ -81,25 +121,25 @@ def _dtab_url():
 CATALOG = [
     Tool("ffmpeg", "ffmpeg.exe",
          "Mixes the song stems and encodes the background video.",
-         "gyan.dev FFmpeg build", _ffmpeg_url, ["-version"]),
+         "gyan.dev FFmpeg build", (_ffmpeg_url, _ffmpeg_mirror), ["-version"]),
     Tool("ffprobe", "ffprobe.exe",
          "Reads durations and stream details from the source audio.",
-         "gyan.dev FFmpeg build", _ffmpeg_url, ["-version"]),
+         "gyan.dev FFmpeg build", (_ffmpeg_url, _ffmpeg_mirror), ["-version"]),
     Tool("onyx", "onyx.exe",
          "Converts each chart to Rock Band 2 form and computes its ranks.",
-         "Onyx Music Game Toolkit", _onyx_url, ["--help"]),
+         "Onyx Music Game Toolkit", (_onyx_url,), ["--help"]),
     Tool("arkhelper", "arkhelper.exe",
          "Unpacks and repacks the game's MAIN archive.",
-         "Mackiloha", _mackiloha_url, ["--help"]),
+         "Mackiloha", (_mackiloha_url,), ["--help"]),
     Tool("dtab", "dtab.exe",
          "Compiles and encrypts the song list the game reads.",
-         "dtab by mtolly", _dtab_url, ["--help"]),
+         "dtab by mtolly", (_dtab_url,), ["--help"]),
     Tool("superfreq", "superfreq.exe",
          "Converts album art to the PS2's paletted texture format.",
-         "Mackiloha", _mackiloha_url, ["--help"]),
+         "Mackiloha", (_mackiloha_url,), ["--help"]),
     Tool("ps2str", "ps2str.exe",
          "Muxes the video and audio into the .pss streams the game plays.",
-         "Sony PS2 SDK (you must supply this)", None, [],
+         "Sony PS2 SDK (you must supply this)", (), [],
          manual="ps2str is part of Sony's PS2 development kit and cannot be "
                 "distributed, so point at your own copy of ps2str.exe."),
 ]
@@ -148,45 +188,72 @@ def find_in(root, exe):
     return hits[0] if hits else None
 
 
-def download(tool, settings, progress=None):
-    """Fetch and unpack a tool, returning the path to its executable.
+def site_of(url):
+    return urllib.parse.urlsplit(url).netloc or url
+
+
+def why_failed(exc):
+    """A download failure in the terms the user needs to hear it."""
+    reason = getattr(exc, "reason", None) or exc
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return ("its certificate was refused (%s), which is either for the site "
+                "to put right or this machine's clock being wrong"
+                % (getattr(reason, "verify_message", None) or reason))
+    return str(reason) or type(exc).__name__
+
+
+def fetch(url, archive, progress=None):
+    """Download one URL to a file.
 
     progress is called with (bytes_done, bytes_total) where total may be 0 if
     the server does not say.
     """
+    with _open(url, 120) as src:
+        total = int(src.headers.get("Content-Length") or 0)
+        done = 0
+        with open(archive, "wb") as fp:
+            while True:
+                chunk = src.read(1 << 18)
+                if not chunk:
+                    break
+                fp.write(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
+
+
+def download(tool, settings, progress=None, status=None):
+    """Fetch and unpack a tool, returning the path to its executable.
+
+    Each place the tool can come from is tried in turn, so one of them being
+    down, blocked or out of certificate costs a moment instead of the download.
+    """
     if not tool.downloadable:
         raise ToolError(tool.manual or "%s must be supplied by hand." % tool.key)
 
-    try:
-        url = tool.finder()
-    except Exception as exc:
-        raise ToolError("Could not reach the download site for %s (%s). Check "
-                        "your connection, or fetch it yourself from: %s"
-                        % (tool.key, exc, tool.source))
-    if not url:
-        raise ToolError("Could not find a download for %s. Fetch it yourself "
-                        "from: %s" % (tool.key, tool.source))
-
     dest = os.path.join(settings.downloads, tool.key)
     archive = os.path.join(settings.downloads, "%s.zip" % tool.key)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=120) as src:
-            total = int(src.headers.get("Content-Length") or 0)
-            done = 0
-            with open(archive, "wb") as fp:
-                while True:
-                    chunk = src.read(1 << 18)
-                    if not chunk:
-                        break
-                    fp.write(chunk)
-                    done += len(chunk)
-                    if progress:
-                        progress(done, total)
-    except Exception as exc:
-        raise ToolError("Downloading %s failed (%s). You can fetch it yourself "
+    trouble = []
+    for finder in tool.finders:
+        try:
+            url = finder()
+        except Exception as exc:
+            trouble.append("could not ask for a link: %s" % why_failed(exc))
+            continue
+        if not url:
+            trouble.append("no download offered")
+            continue
+        if trouble and status:
+            status("Trying %s instead ..." % site_of(url))
+        try:
+            fetch(url, archive, progress)
+            break
+        except Exception as exc:
+            trouble.append("%s: %s" % (site_of(url), why_failed(exc)))
+    else:
+        raise ToolError("Could not download %s (%s). You can fetch it yourself "
                         "from %s and use Locate instead."
-                        % (tool.key, exc, tool.source))
+                        % (tool.key, "; ".join(trouble), tool.source))
 
     shutil.rmtree(dest, ignore_errors=True)
     os.makedirs(dest, exist_ok=True)
@@ -223,7 +290,7 @@ def install(keys, settings, progress=None, status=None):
             continue
         if status:
             status("Downloading %s ..." % tool.key)
-        path = download(tool, settings, progress)
+        path = download(tool, settings, progress, status)
         settings.tools[tool.key] = path
 
         # ffmpeg and ffprobe arrive together, as do the three Mackiloha tools,

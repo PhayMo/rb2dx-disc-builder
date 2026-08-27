@@ -54,6 +54,32 @@ def run(cmd, timeout=None):
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
+def magma_errors(out, limit=4):
+    """What Magma objected to, out of everything else its log says.
+
+    Its complaints are the one useful part of a failed build and each names the
+    track it is unhappy with, but they arrive among hundreds of lines of
+    progress, and prefixed with the path of a scratch file nobody has any use
+    for.
+    """
+    seen = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line.startswith("ERROR"):
+            continue
+        line = re.sub(r"^MIDI Compiler:\s*", "",
+                      line[len("ERROR"):].lstrip(":! "))
+        line = re.sub(r"^\S+\.mid\s*", "", line)
+        if line and line not in seen:
+            seen.append(line)
+    if not seen:
+        return ""
+    said = "; ".join(seen[:limit])
+    if len(seen) > limit:
+        said += " (and %d more)" % (len(seen) - limit)
+    return said
+
+
 def nameable(path):
     """Whether Onyx can print this path.
 
@@ -212,22 +238,29 @@ def build(settings, sid, source_dir, log=None):
         _say(log, line)
     for line in midfix.fix_vocal_phrases(notes):
         _say(log, line)
+    for line in midfix.fix_vocal_notes(notes):
+        _say(log, line)
     # Before the reductions, which take their lanes from what Expert plays.
     for line in midfix.fix_wide_chords(notes):
         _say(log, line)
     for line in midfix.fix_reductions(notes):
+        _say(log, line)
+    # Last, so it lands past whatever the fixes above left behind.
+    for line in midfix.fix_end_marker(notes):
         _say(log, line)
 
     if os.path.exists(con):
         os.remove(con)
     code, out = run([onyx, "build", os.path.join(proj, "song.yml"),
                      "--target", "rb2", "--to", con])
-    # Magma's complaints are the useful part of a failure and are far too long
-    # for one line, so the whole log stays on disk next to the project.
-    with open(os.path.join(work, "build.log"), "w", encoding="utf-8") as fp:
+    # The whole log stays on disk next to the project, since a failure usually
+    # takes more reading than one line of it can hold.
+    log_path = os.path.join(work, "build.log")
+    with open(log_path, "w", encoding="utf-8") as fp:
         fp.write(out)
     if not os.path.exists(con):
-        return False, "build failed: %s" % out.strip()[-300:]
+        return False, "%s (the whole log is in %s)" % (
+            magma_errors(out) or out.strip()[-300:], log_path)
 
     code, out = run([onyx, "extract", con, "--to", xdir])
     songs_root = os.path.join(xdir, "songs")
