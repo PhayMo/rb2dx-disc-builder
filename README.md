@@ -98,6 +98,18 @@ out of the backing. It costs two channels per song, about a tenth of its size,
 and re-mixes the songs already staged without putting any chart back through the
 converter.
 
+## Video
+
+The background is MPEG-2 at 400x304, in the picture shape the game's own videos
+use: an I frame every 18 with two B frames between the anchors. That matters most
+for animation. A clip drawn at six frames a second holds each picture for four or
+five frames of the disc's thirty, and those repeats cost almost nothing as B
+frames, which leaves twice the bits for the frames that carry the picture. Such a
+clip is also softened very slightly, because fine detail is what an encoder
+cannot draw the same way twice, and a still picture redrawn a little differently
+each frame crawls on a television. Footage that really moves is left sharp.
+Neither changes what a song costs on the disc.
+
 ## The command line
 
 Everything the interface does is available without it:
@@ -126,7 +138,9 @@ why, in the converter's own words, with the path to its log. Missing album art
 and charts Magma rejects are the usual causes. Plenty of what a Clone Hero chart
 gets away with is repaired on the way through rather than costing you the song:
 track numbers of zero, chords of four or five gems, nested vocal phrases, notes
-with no syllable on them, a stray second `[end]` marker. Failures are remembered
+with no syllable on them, a stray second `[end]` marker, a solo or a sung phrase
+running into the big rock ending, an ending whose lanes do not all finish
+together. Failures are remembered
 so later builds do not stall on the same song; *Try the failed songs again*
 clears that.
 

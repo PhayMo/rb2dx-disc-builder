@@ -34,9 +34,9 @@ SONG_STAGES = [
 ALL_STAGES = frozenset(name for name, _ in SONG_STAGES)
 
 # The parts of a song's stamp that only the video stage reads. Change one of
-# these - the background, or the bitrate behind it - and the song's audio, chart
-# and art are still good, so only its video is encoded again.
-VIDEO_KEYS = ("video_kbps", "background", "video")
+# these - the background, the bitrate behind it, or how the clip is encoded - and
+# the song's audio, chart and art are still good, so only its video is made again.
+VIDEO_KEYS = ("video_kbps", "background", "video", "picture")
 
 # And the parts only the mix depends on. A song's audio is muxed into its .pss,
 # so the video stage has to run as well or the disc would ship a mix one width
@@ -47,6 +47,18 @@ VIDEO_KEYS = ("video_kbps", "background", "video")
 # backing, and is listed so those songs re-mix rather than rebuilding whole.
 AUDIO_KEYS = ("mix", "wide", "vocals")
 AUDIO_STAGES = frozenset(["audio", "vgs", "video"])
+
+# And the part only the chart depends on. A chart carries no audio, so the song
+# keeps the mix, the art and the video it has - unless the converter lands its
+# first note somewhere new, which is caught below. Converting a chart is the
+# slowest thing here, half a minute a song, which is why it is worth telling apart.
+CHART_KEYS = ("chart",)
+CHART_STAGES = frozenset(["charts"])
+
+# Bumped when the chart changes, to put songs staged by an older version back
+# through the converter on their own. 2: the markers that force a note to be
+# hammered or strummed are kept, rather than dropped on Expert.
+CHART = 2
 
 # Bumped when the mix itself changes, to re-mix songs staged by an older version
 # without putting their charts through the converter again. 2: what a channel
@@ -129,7 +141,8 @@ class Pipeline:
                 stems.append([name, 0, 0])
         sig = {"source": song.path, "stems": stems,
                "video_kbps": self.settings.encode_kbps,
-               "mix": MIX, "format": FORMAT}
+               "picture": video.SHAPE, "mix": MIX, "chart": CHART,
+               "format": FORMAT}
         # Only songs affected carry the keys below, so nothing already built is
         # disturbed by one of them appearing.
         if self.settings.wide_mix:
@@ -161,13 +174,15 @@ class Pipeline:
             return frozenset()
         changed = {k for k in set(built) | set(want)
                    if built.get(k) != want.get(k)}
-        if not changed <= set(VIDEO_KEYS) | set(AUDIO_KEYS):
+        if not changed <= set(VIDEO_KEYS) | set(AUDIO_KEYS) | set(CHART_KEYS):
             return ALL_STAGES
         stages = set()
         if changed & set(VIDEO_KEYS):
             stages |= {"video"}
         if changed & set(AUDIO_KEYS):
             stages |= AUDIO_STAGES
+        if changed & set(CHART_KEYS):
+            stages |= CHART_STAGES
         return frozenset(stages)
 
     def _write_stamp(self, song):
@@ -200,11 +215,18 @@ class Pipeline:
     def _build_song(self, song):
         """All stages for one song. Returns (song, stage, reason) on failure."""
         self._check()
-        stale = self._stale(song)
+        stale = set(self._stale(song))
+        # How much silence goes in front of the audio is measured from the chart
+        # and put in when the console audio is encoded, so a chart that comes back
+        # from the converter starting somewhere else has to take the audio with
+        # it. Noted before anything runs, since the chart stage overwrites it.
+        lead_was = charts.recorded_lead(self.settings, song.sid)
         if stale == ALL_STAGES:
             self.log("%s: source changed, rebuilding" % song.label)
         elif stale == AUDIO_STAGES:
             self.log("%s: mixing its audio again" % song.label)
+        elif stale == CHART_STAGES:
+            self.log("%s: converting its chart again" % song.label)
         elif stale:
             self.log("%s: encoding %s again"
                      % (song.label, " and ".join(sorted(stale))))
@@ -224,6 +246,14 @@ class Pipeline:
             self.on_song(song.label, doing, ok, message)
             if not ok:
                 return song, doing, message
+
+            if name == "charts" and lead_was is not None:
+                lead = charts.recorded_lead(self.settings, song.sid)
+                if lead != lead_was:
+                    self.log("%s: its chart now starts %d ms in rather than %d, "
+                             "so its console audio is encoded again to meet it"
+                             % (song.label, lead, lead_was))
+                    stale |= {"vgs", "video"}
 
         ok, why = charts.check_mix(self.settings, song.sid)
         if not ok:

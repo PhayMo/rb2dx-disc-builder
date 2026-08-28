@@ -245,6 +245,15 @@ def build(settings, sid, source_dir, log=None):
         _say(log, line)
     for line in midfix.fix_reductions(notes):
         _say(log, line)
+    for line in midfix.fix_coda_overrun(notes):
+        _say(log, line)
+    for line in midfix.fix_big_rock_ending(notes):
+        _say(log, line)
+    for line in midfix.fix_shared_phrases(notes):
+        _say(log, line)
+    # After the phrases have stopped moving, so nothing is left hanging out of one.
+    for line in midfix.fix_notes_in_phrases(notes):
+        _say(log, line)
     # Last, so it lands past whatever the fixes above left behind.
     for line in midfix.fix_end_marker(notes):
         _say(log, line)
@@ -287,9 +296,8 @@ def build(settings, sid, source_dir, log=None):
     shutil.copyfile(mid_src, raw)
     shipped = os.path.join(song_stage, sid + ".mid")
     fixes = midfix.conform(raw, shipped,
-                           do_events=True, do_pitches=True,
-                           do_lighting=True, do_order=True, rename=sid,
-                           drum_width=drum_width, keep_parts=parts)
+                           do_events=True, do_lighting=True, do_order=True,
+                           rename=sid, drum_width=drum_width, keep_parts=parts)
     for line in fixes:
         _say(log, line)
 

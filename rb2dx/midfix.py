@@ -1,12 +1,10 @@
 """Rewrite a Rock Band chart so it only uses what RB2 on PS2 understands.
 
 Onyx targets RB2 on Xbox 360, which tolerates more than the PS2 build does.
-Comparing our chart against retail 'afterlife' turns up three things retail
-never contains:
+Comparing our chart against retail 'afterlife' turns up two things retail never
+contains:
 
   * notes on the EVENTS track (retail carries text events only)
-  * pitches 101 and 102 on instrument tracks, which fall between Expert's
-    top gem (100) and the solo marker (103) and mean nothing to RB2
   * '[lighting ()]' with an empty preset name in VENUE
 
 Each transform can be applied on its own so a build can ship several variants
@@ -23,7 +21,6 @@ PART_FOR_TRACK = {"PART DRUMS": "drum", "PART GUITAR": "guitar",
                   "PART BASS": "bass", "PART RHYTHM": "bass",
                   "PART VOCALS": "vocals", "HARM1": "vocals",
                   "HARM2": "vocals", "HARM3": "vocals"}
-BAD_PITCHES = (101, 102)
 RETAIL_ORDER = ("PART DRUMS", "PART GUITAR", "PART BASS", "PART VOCALS",
                 "VENUE", "EVENTS", "BEAT")
 # A preset retail uses, substituted wherever the chart asks for no lighting.
@@ -492,6 +489,287 @@ def write_mid(path, fmt, div, tracks):
         fp.write(bytes(out))
 
 
+CODA_TEXT = b"[coda]"
+# The lane a solo phrase sits on, and the five a big rock ending is written
+# across. 120-124 is a drum fill everywhere else in a song and the ending only
+# from the [coda] on, which is how the two are told apart below.
+SOLO_PITCH = 103
+BRE_PITCHES = tuple(range(120, 125))
+BRE_TRACKS = ("PART GUITAR", "PART BASS", "PART DRUMS")
+# A sung phrase is marked on 105, and on 106 as well in a song two people can
+# share; the notes between them are the sung pitches.
+PHRASE_PITCHES = (105, 106)
+SUNG_PITCHES = tuple(range(36, 85))
+VOCAL_TRACKS = ("PART VOCALS", "HARM1", "HARM2", "HARM3")
+
+
+def coda_tick(tracks):
+    """Where this chart's big rock ending begins, or None if it has none."""
+    for events in tracks:
+        if track_name(events) != "EVENTS":
+            continue
+        for tick, ev in events:
+            if (event_text(ev) or b"").strip() == CODA_TEXT:
+                return tick
+    return None
+
+
+def fix_coda_overrun(path):
+    """Leave the [coda] to the big rock ending, which Magma insists on.
+
+    Retail charts run their last guitar solo and their last sung phrase right up
+    to the marker, ending them on the very tick the ending begins, and Magma reads
+    that as reaching into it. Ending them a tick earlier is a thousandth of a
+    second and covers everything they covered. A syllable written past the marker
+    has to go instead, with its lyric; in the charts this was found in that is the
+    tail of a slide, so the note it slid from is still sung.
+    """
+    fmt, div, tracks = read_mid(path)
+    coda = coda_tick(tracks)
+    if coda is None:
+        return []
+
+    report = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events)
+        vocal = name in VOCAL_TRACKS
+        if not vocal and name not in BRE_TRACKS:
+            continue
+        marks = PHRASE_PITCHES if vocal else (SOLO_PITCH,)
+
+        out, opened, orphan = [], {}, set()
+        pulled = dropped = 0
+        for tick, ev in events:
+            if is_note(ev):
+                pitch = ev[1]
+                if note_on(ev):
+                    if vocal and pitch in SUNG_PITCHES and tick >= coda:
+                        orphan.add(pitch)
+                        dropped += 1
+                        # Its syllable is written on the same tick, just ahead of
+                        # it, and would be left with nothing to sing on.
+                        while out and out[-1][0] == tick \
+                                and (event_text(out[-1][1]) or b"[")[:1] != b"[":
+                            out.pop()
+                        continue
+                    opened[pitch] = tick
+                else:
+                    if pitch in orphan:
+                        orphan.discard(pitch)
+                        continue
+                    began = opened.pop(pitch, None)
+                    over = tick >= coda if pitch in marks else tick > coda
+                    # One that begins there too is left alone: there would be
+                    # nothing left of it in front of the marker.
+                    if over and began is not None and began < coda - 1 \
+                            and (pitch in marks or pitch in SUNG_PITCHES):
+                        tick = coda - 1
+                        pulled += 1
+            out.append((tick, ev))
+
+        if not (pulled or dropped):
+            continue
+        tracks[idx] = sorted(out, key=lambda pair: pair[0])
+        said = []
+        if pulled:
+            said.append("pulled %d %s back in front of the [coda]"
+                        % (pulled, "solo" if not vocal else "phrase"
+                           if pulled == 1 else "phrases"))
+        if dropped:
+            said.append("dropped %d syllable%s written past it"
+                        % (dropped, "" if dropped == 1 else "s"))
+        report.append("%s: %s" % (name, " and ".join(said)))
+
+    if report:
+        write_mid(path, fmt, div, tracks)
+    return report
+
+
+def fix_big_rock_ending(path):
+    """Have every lane of the big rock ending begin and end together.
+
+    Magma insists on it across all the instruments at once, and a chart brought
+    over from another game is often a tick or two out on one of them - inaudible,
+    and still refused. The lanes are stretched to the longest of them.
+    """
+    fmt, div, tracks = read_mid(path)
+    coda = coda_tick(tracks)
+    if coda is None:
+        return []
+
+    # Where each track's ending lanes are, by their place in the track, so the
+    # ticks can be rewritten once it is clear they disagree.
+    found = {}
+    for idx, events in enumerate(tracks):
+        if track_name(events) not in BRE_TRACKS:
+            continue
+        opened = {}
+        for at, (tick, ev) in enumerate(events):
+            if not (is_note(ev) and ev[1] in BRE_PITCHES):
+                continue
+            if note_on(ev):
+                opened[ev[1]] = (at, tick)
+            elif ev[1] in opened:
+                start_at, start_tick = opened.pop(ev[1])
+                # Past the marker rather than up to it: a drum fill can end on
+                # the [coda] itself, and is not part of the ending.
+                if tick > coda:
+                    found.setdefault(idx, []).append(
+                        (start_at, start_tick, at, tick))
+
+    starts = {s for lanes in found.values() for _, s, _, _ in lanes}
+    ends = {e for lanes in found.values() for _, _, _, e in lanes}
+    if len(starts) <= 1 and len(ends) <= 1:
+        return []
+
+    # Lanes that disagree on where the ending begins are put on the marker,
+    # which is where it begins by definition.
+    start = coda if len(starts) > 1 else starts.pop()
+    end = max(ends)
+
+    report = []
+    for idx, lanes in found.items():
+        events = list(tracks[idx])
+        gap = 0
+        for start_at, start_tick, end_at, end_tick in lanes:
+            events[start_at] = (start, events[start_at][1])
+            events[end_at] = (end, events[end_at][1])
+            gap = max(gap, end - end_tick, start_tick - start)
+        if not gap:
+            continue
+        tracks[idx] = sorted(events, key=lambda pair: pair[0])
+        report.append("%s: stretched its big rock ending %d tick%s so every "
+                      "lane ends with the others"
+                      % (track_name(events), gap, "" if gap == 1 else "s"))
+
+    if report:
+        write_mid(path, fmt, div, tracks)
+    return report
+
+
+def _phrase_spans(events, pitch):
+    """(where the note-on sits, its tick, where the note-off sits, its tick)."""
+    opened, out = [], []
+    for at, (tick, ev) in enumerate(events):
+        if not (is_note(ev) and ev[1] == pitch):
+            continue
+        if note_on(ev):
+            opened.append((at, tick))
+        elif opened:
+            start_at, start_tick = opened.pop(0)
+            out.append((start_at, start_tick, at, tick))
+    return out
+
+
+def fix_shared_phrases(path):
+    """Have a phrase and the second singer's copy of it cover the same ticks.
+
+    A phrase both singers take is written twice, on 105 and on 106, over the same
+    span. Onyx lengthens a phrase to reach the last note in it, and it does that to
+    one of the pair and not the other, which leaves the two half over each other:
+    Magma calls that a vocal phrase overlap and refuses the song. Both are widened
+    to the longer of them, which is what the chart said before it came through.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    report = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events)
+        if name not in VOCAL_TRACKS:
+            continue
+
+        events = list(events)
+        matched = 0
+        for mine in _phrase_spans(events, 105):
+            for theirs in _phrase_spans(events, 106):
+                start = min(mine[1], theirs[1])
+                end = max(mine[3], theirs[3])
+                # Only a pair that is meant to be one phrase: two that lie apart
+                # are one singer's then the other's, and are left alone.
+                if mine[1] >= theirs[3] or theirs[1] >= mine[3]:
+                    continue
+                if mine[1] == theirs[1] and mine[3] == theirs[3]:
+                    continue
+                for start_at, _, end_at, _ in (mine, theirs):
+                    events[start_at] = (start, events[start_at][1])
+                    events[end_at] = (end, events[end_at][1])
+                matched += 1
+        if not matched:
+            continue
+        tracks[idx] = sorted(events, key=lambda pair: pair[0])
+        report.append("%s: gave %s the same span, which Magma will not have "
+                      "overlap"
+                      % (name, "1 phrase and the second singer's copy of it"
+                         if matched == 1 else
+                         "%d phrases and the second singer's copies of them"
+                         % matched))
+
+    if report:
+        write_mid(path, fmt, div, tracks)
+    return report
+
+
+def fix_notes_in_phrases(path):
+    """Keep every sung note inside the phrase it belongs to.
+
+    A phrase is what the game scores, and Magma stops at a note whose tail hangs
+    out of one. A chart converted from another game is often a few ticks over on a
+    syllable or two, so those end with their phrase instead. Run after the phrases
+    themselves are settled, since moving one can leave a note hanging.
+    """
+    fmt, div, tracks = read_mid(path)
+
+    report = []
+    for idx, events in enumerate(tracks):
+        name = track_name(events)
+        if name not in VOCAL_TRACKS:
+            continue
+
+        # Both markers are checked: a song two can share carries 106 as well, and
+        # a note has to sit inside whichever of them holds it.
+        opened, spans = {}, {105: [], 106: []}
+        for tick, ev in events:
+            if not is_note(ev):
+                continue
+            if note_on(ev):
+                opened.setdefault(ev[1], []).append(tick)
+                continue
+            starts = opened.get(ev[1]) or []
+            began = starts.pop(0) if starts else None
+            if began is not None and ev[1] in spans:
+                spans[ev[1]].append((began, tick))
+        for seen in spans.values():
+            seen.sort()
+
+        def phrase_end(at):
+            ends = [e for seen in spans.values() for s, e in seen
+                    if s <= at < e]
+            return min(ends) if ends else None
+
+        out, began_at, trimmed = [], {}, 0
+        for tick, ev in events:
+            if is_note(ev) and ev[1] in SUNG_PITCHES:
+                if note_on(ev):
+                    began_at[ev[1]] = tick
+                else:
+                    began = began_at.pop(ev[1], None)
+                    end = phrase_end(began) if began is not None else None
+                    if end is not None and tick > end:
+                        tick = end
+                        trimmed += 1
+            out.append((tick, ev))
+        if not trimmed:
+            continue
+        tracks[idx] = sorted(out, key=lambda pair: pair[0])
+        report.append("%s: ended %d note%s with the phrase holding it, which "
+                      "Magma will not have one hang out of"
+                      % (name, trimmed, "" if trimmed == 1 else "s"))
+
+    if report:
+        write_mid(path, fmt, div, tracks)
+    return report
+
+
 END_TEXT = b"[end]"
 # How much room the marker gets past the last event, in beats. Onyx holds a
 # venue note to a minimum length of an eighth of a beat, so this only has to be
@@ -661,7 +939,7 @@ def _vocal_order(ev):
     return 1 if not note_on(ev) else 2
 
 
-def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,
+def conform(src, dst, do_events=False, do_lighting=False,
             do_order=False, one_tempo=False, rename=None, drum_width=None,
             keep_parts=None):
     """Apply the selected transforms, writing a new chart. Returns a report.
@@ -683,15 +961,6 @@ def conform(src, dst, do_events=False, do_pitches=False, do_lighting=False,
             before = len(events)
             events = [(t, e) for t, e in events if not is_note(e)]
             report.append("EVENTS: dropped %d note events" % (before - len(events)))
-
-        if do_pitches and name in INSTRUMENT_TRACKS:
-            before = len(events)
-            events = [(t, e) for t, e in events
-                      if not (is_note(e) and e[1] in BAD_PITCHES)]
-            if before != len(events):
-                report.append("%s: dropped %d events on pitches %s"
-                              % (name, before - len(events),
-                                 ",".join(str(p) for p in BAD_PITCHES)))
 
         if do_lighting and name == "VENUE":
             fixed = 0

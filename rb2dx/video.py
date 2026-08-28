@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import struct
 import subprocess
@@ -45,6 +46,17 @@ FPS = "30000/1001"
 # ffmpeg's own default is far larger, and the PS2's video decoder has only a
 # small buffer to fill, so state retail's figure explicitly.
 VBV_BITS = 40 * 16384
+# Retail's picture shape too: an I frame every 18, two B frames between each
+# anchor, IBBPBBPBB... A frame that only repeats the one before it is nearly free
+# as a B frame, and what that buys is the I frames. Retail spends 27 kB on an I
+# frame inside the same buffer a flat run of P frames leaves 13 kB for, which is
+# the difference between a clip that holds its picture and one that visibly
+# redraws it every time the frames come round.
+GOP, B_FRAMES = 18, 2
+# Both cost nothing on the disc and a little encoding time: trellis quantisation
+# spends each frame's bits where they show, and mv0 has the encoder try leaving a
+# block exactly where it was, which is the right answer for most of an animation.
+STEADY = ("-trellis", "2", "-mpv_flags", "+mv0")
 # The console starts the chart 3s into the stream, so audio and video both open
 # with 3s of nothing. Some songs' audio opens with more than that, and the video
 # is sized from the finished audio below, so it stays the shorter of the two.
@@ -56,6 +68,11 @@ TAIL_SLACK = 2.0
 SAMPLES_PER_BLOCK = 28
 ADPCM_BLOCK = 16
 
+# Bumped when the encode changes, so a song staged by an older version has its
+# video made again while its chart, art and audio are left alone. 2: retail's
+# picture shape, and a steadier encode for a clip that holds still.
+SHAPE = 2
+
 # A song folder can carry its own video, which Clone Hero plays behind that song
 # and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
 # charts use background.<ext> for the same thing, next to the still image of that
@@ -66,6 +83,24 @@ ADPCM_BLOCK = 16
 # background: Rock Band 2 draws its own, so those are left alone.
 SONG_VIDEO_NAMES = ("video", "background")
 SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
+
+# An animation or a GIF is usually drawn at 6 frames a second, so playing it at
+# the disc's 30 holds each picture for four or five frames. Those held frames are
+# where a flicker comes from: the encoder has to send something for every one of
+# them, and what it sends is never quite the picture it sent before, so a still
+# image quietly crawls. Clips like that get the two settings below, which cost a
+# touch of detail and take most of that movement out. A clip that is really shot
+# footage repeats nothing and is left sharp.
+STILL_SHARE = 0.35
+STILL_SAMPLE = 10.0
+STILL_SIZE = (100, 76)
+# Fine detail is what the encoder cannot hold steady, and line art downscaled to
+# 400x304 is nothing but fine detail. Half a pixel of blur is not visible behind
+# a note highway; the crawling is.
+SOFTEN = "gblur=sigma=0.5"
+# And a floor under the quantiser, so the bitrate is not spent chasing detail
+# finer than the format can keep still from one frame to the next.
+STILL_QMIN = 3
 
 
 def vgs_info(path):
@@ -152,21 +187,47 @@ def video_offset(source_dir):
     return (raw, 0.0) if raw > 0 else (0.0, abs(raw))
 
 
-def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0):
+def still_share(settings, src, start=0.0):
+    """The share of frames this clip would repeat, played at the disc's rate.
+
+    Measured small and only over the opening, which is enough to tell a six-frame
+    animation from shot footage and costs a fraction of a second.
+    """
+    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error"]
+    if start:
+        cmd += ["-ss", "%.3f" % start]
+    cmd += ["-t", "%.1f" % STILL_SAMPLE, "-i", src,
+            "-vf", "scale=%d:%d,fps=%s,signalstats,metadata=print:file=-"
+            % (STILL_SIZE[0], STILL_SIZE[1], FPS),
+            "-f", "null", os.devnull]
+    r = proc.run(cmd, capture_output=True, text=True)
+    seen = re.findall(r"lavfi\.signalstats\.YDIF=([\d.]+)", r.stdout or "")
+    if not seen:
+        return 0.0
+    return len([v for v in seen if float(v) == 0.0]) / float(len(seen))
+
+
+def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
+                 steady=False):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
     start skips that far into the source and delay puts that much extra black in
     front of it, which is how a song's own video is lined up with its audio. An
     empty src means a black background, generated here rather than read from a
     file: there is nothing to loop, scale or line up, so the whole stream is
-    black and the bitrate can be a fraction of a real clip's.
+    black and the bitrate can be a fraction of a real clip's. steady is for a
+    clip that spends its time holding one picture, and trades a little of its
+    detail for keeping that picture still.
     """
     kbps = settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
-        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,"
-              "crop=%d:%d,fps=%s,tpad=start_duration=%s:start_mode=add:color=black"
-              % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS, LEAD_IN + delay))
+        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
+              % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS))
+        if steady:
+            vf += "," + SOFTEN
+        vf += ",tpad=start_duration=%s:start_mode=add:color=black" % (LEAD_IN
+                                                                     + delay)
         cmd += ["-stream_loop", "-1"]
         if start:
             cmd += ["-ss", "%.3f" % start]
@@ -180,7 +241,11 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0):
             "-minrate", "%dk" % kbps,
             "-maxrate", "%dk" % kbps,
             "-bufsize", "%d" % VBV_BITS,
-            "-pix_fmt", "yuv420p", dst]
+            "-g", str(GOP), "-bf", str(B_FRAMES), *STEADY,
+            "-pix_fmt", "yuv420p"]
+    if steady:
+        cmd += ["-qmin", str(STILL_QMIN)]
+    cmd += [dst]
     return proc.run(cmd, capture_output=True, text=True)
 
 
@@ -280,12 +345,20 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     # for it when the clip that is already staged was made from the same things.
     want = {"clip": os.path.basename(venue), "kbps": settings.encode_kbps,
             "seconds": round(vid_secs, 2), "start": round(start, 3),
-            "delay": round(delay, 3)}
+            "delay": round(delay, 3), "shape": SHAPE}
+    note = ""
     if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
         if log:
             log("video: keeping the clip already encoded for this song")
     else:
-        r = encode_video(settings, venue, m2v, vid_secs, start, delay)
+        share = still_share(settings, venue, start) if venue else 0.0
+        steady = share >= STILL_SHARE
+        if steady:
+            note = " (repeats %d%% of its frames, so it is held steady)" % (
+                share * 100)
+            if log:
+                log("video:%s" % note)
+        r = encode_video(settings, venue, m2v, vid_secs, start, delay, steady)
         if r.returncode != 0 or not os.path.exists(m2v) \
                 or os.path.getsize(m2v) == 0:
             return False, "could not encode the background video: %s" % (
@@ -298,6 +371,6 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
                 % (w, h, fps, br, vid_secs, os.path.getsize(m2v) / 1048576.0))
 
     mux(settings, m2v, vgs, pss, rate)
-    return True, ("%s, %d ch audio, %.1f MB pss"
-                  % (what, info["channels"],
+    return True, ("%s%s, %d ch audio, %.1f MB pss"
+                  % (what, note, info["channels"],
                      os.path.getsize(pss) / 1048576.0))
