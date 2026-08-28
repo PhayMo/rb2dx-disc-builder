@@ -44,9 +44,10 @@ DEFAULTS = {
     # black fits roughly two and a half times as many of them.
     "background": "venues",
     "ceiling_bytes": RETAIL_ISO_BYTES,
-    # Sing from two channels rather than one. Costs a channel of disc space per
-    # song and keeps the vocal's stereo image, which a mono mix averages away.
-    "stereo_vocals": False,
+    # Carry the vocal and the backing in two channels rather than one, keeping
+    # the stereo that averaging them into one throws away. Costs two channels of
+    # disc space per song, or one where the song has no vocal part.
+    "wide_mix": False,
     "jobs": 6,
     # Drop the four songs the Custom Edition ships with, worth about 264 MB of
     # room for your own. See ark.DEMO_SONGS for what they are.
@@ -135,7 +136,10 @@ class Settings:
         self.background = (merged["background"] if merged["background"]
                            in BACKGROUNDS else "venues")
         self.ceiling_bytes = int(merged["ceiling_bytes"])
-        self.stereo_vocals = bool(merged["stereo_vocals"])
+        # Named stereo_vocals in the first release that had it, before it took in
+        # the backing as well.
+        self.wide_mix = bool(merged["wide_mix"]
+                             or merged.get("stereo_vocals", False))
         self.jobs = int(merged["jobs"])
         self.drop_demos = bool(merged["drop_demos"])
         self.disc_folder = bool(merged["disc_folder"])
@@ -166,7 +170,7 @@ class Settings:
                 "video_kbps": self.video_kbps,
                 "background": self.background,
                 "ceiling_bytes": self.ceiling_bytes,
-                "stereo_vocals": self.stereo_vocals,
+                "wide_mix": self.wide_mix,
                 "jobs": self.jobs,
                 "drop_demos": self.drop_demos,
                 "disc_folder": self.disc_folder,

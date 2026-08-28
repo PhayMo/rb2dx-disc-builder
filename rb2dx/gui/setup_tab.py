@@ -89,13 +89,13 @@ class SetupTab(ttk.Frame):
             values=[name for name, _ in VIDEO_PRESETS]),
             hint="Lower quality fits more songs, at some cost to how the "
                  "background looks.")
-        self.stereo_vox_var = tk.BooleanVar(value=False)
-        disc.add_row("Vocals", ttk.Checkbutton(
-            disc, text="Mix the vocal in stereo",
-            variable=self.stereo_vox_var),
-            hint="The game sings from one channel, so a stereo vocal is "
-                 "averaged into it and loses however much its two sides "
-                 "differ. This keeps both, for a channel more per song.")
+        self.wide_var = tk.BooleanVar(value=False)
+        disc.add_row("Stereo mix", ttk.Checkbutton(
+            disc, text="Keep the vocal and the backing in stereo",
+            variable=self.wide_var),
+            hint="Both are one channel by default, as in the game's own songs, "
+                 "which averages away however much their two sides differ. This "
+                 "keeps them, for two channels more per song.")
         self.jobs_var = tk.IntVar(value=6)
         disc.add_row("Songs at once", ttk.Spinbox(
             disc, from_=1, to=32, textvariable=self.jobs_var, width=6),
@@ -110,7 +110,7 @@ class SetupTab(ttk.Frame):
         self.disc_var.trace_add("write", lambda *_: self.push())
         self.bg_var.trace_add("write", lambda *_: self.push())
         self.video_var.trace_add("write", lambda *_: self.push())
-        self.stereo_vox_var.trace_add("write", lambda *_: self.push())
+        self.wide_var.trace_add("write", lambda *_: self.push())
         self.jobs_var.trace_add("write", lambda *_: self.push())
         self.demos_var.trace_add("write", lambda *_: self.push())
         self.folder_var.trace_add("write", lambda *_: self.push())
@@ -155,7 +155,7 @@ class SetupTab(ttk.Frame):
         self.tmp.set(s.tmp)
         self.iso.set(s.out_iso)
         self.jobs_var.set(s.jobs)
-        self.stereo_vox_var.set(s.stereo_vocals)
+        self.wide_var.set(s.wide_mix)
         self.demos_var.set(s.drop_demos)
         self.folder_var.set(s.disc_folder)
         self.suggested_folder = iso.folder_beside(s.out_iso)
@@ -182,7 +182,7 @@ class SetupTab(ttk.Frame):
             s.jobs = max(1, int(self.jobs_var.get()))
         except (tk.TclError, ValueError):
             pass
-        s.stereo_vocals = bool(self.stereo_vox_var.get())
+        s.wide_mix = bool(self.wide_var.get())
         s.drop_demos = bool(self.demos_var.get())
         s.disc_folder = bool(self.folder_var.get())
         self.folder.enable(s.disc_folder)

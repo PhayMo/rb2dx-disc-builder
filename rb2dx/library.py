@@ -44,17 +44,16 @@ PART_ROLES = [
     ("guitar", ("guitar",),                         2),
     ("vocals", ("vocals", "vocals_1", "vocals_2"),  1),
 ]
-# Vocals in stereo instead, for whoever would rather spend the channel: 87 of the
-# 88 shipped entries sing from one channel panned centre, so mono is the shape to
-# default to, but the game reads a list of channels for every part and its own
-# frame rate test sings from two, panned hard left and right.
-STEREO_VOCAL_WIDTH = 2
+# The vocal and the backing in stereo instead, for whoever would rather spend the
+# channels than have those two averaged into one each. Neither is the retail shape
+# for a song - 87 of the 88 entries sing from one centred channel and 71 leave one
+# channel for the backing - but both are shapes the game plays: the vocal training
+# songs are a mono vocal over a stereo backing, and the frame rate test sings from
+# a pair panned hard left and right.
+WIDE_ROLES = {"vocals": 2, "backing": 2}
 # Stems that end up in the backing track when no part claims them, in the order
-# they are mixed. Backing is mono: of the 83 shipped PS2 entries, 71 leave
-# exactly one channel unclaimed by any part and the rest leave none, and the
-# only ones with a spare pair are tutorial assets, never a song. Keys fold in
-# here because Rock Band 2 has no keys. Anything not named here - crowd audio,
-# a folder's own preview clip - stays off the disc.
+# they are mixed. Keys fold in here because Rock Band 2 has no keys. Anything not
+# named here - crowd audio, a folder's own preview clip - stays off the disc.
 BACKING_STEMS = ("song", "keys", "drums", "drums_1", "drums_2", "drums_3",
                  "drums_4", "bass", "rhythm", "guitar", "vocals", "vocals_1",
                  "vocals_2")
@@ -206,13 +205,17 @@ def drum_roles(names):
     return [{"role": "kit", "width": 2, "keys": numbered}]
 
 
-def channel_plan(names, parts, stereo_vocals=False):
+def channel_plan(names, parts, wide=False):
     """The channels a song's audio becomes: [{role, width, keys}] in disc order.
 
     names are the stem names in the song folder, parts the instruments the
     chart plays. One place decides this so a song can be priced from its folder
-    alone and mixed later to the same layout.
+    alone and mixed later to the same layout. wide keeps the stereo of the roles
+    in WIDE_ROLES rather than averaging each into one channel.
     """
+    def width_of(role, width):
+        return WIDE_ROLES[role] if wide and role in WIDE_ROLES else width
+
     plan, claimed = [], set()
     if "drum" in parts:
         plan = drum_roles(names)
@@ -220,24 +223,23 @@ def channel_plan(names, parts, stereo_vocals=False):
     for role, candidates, width in PART_ROLES:
         if role not in parts:
             continue
-        if role == "vocals" and stereo_vocals:
-            width = STEREO_VOCAL_WIDTH
         keys = [c for c in candidates if c in names]
         claimed.update(keys)
-        plan.append({"role": role, "width": width, "keys": keys})
+        plan.append({"role": role, "width": width_of(role, width), "keys": keys})
     # Everything nobody is playing is mixed together as the backing track, as
     # the retail mixes do: a stem for a part this chart skips belongs there
     # rather than being dropped, or the song would be missing that instrument.
     backing = [n for n in BACKING_STEMS if n in names and n not in claimed]
     if backing:
-        plan.append({"role": "backing", "width": 1, "keys": backing})
+        plan.append({"role": "backing", "width": width_of("backing", 1),
+                     "keys": backing})
     return plan
 
 
-def channels_for(stems, parts, stereo_vocals=False):
+def channels_for(stems, parts, wide=False):
     """How many audio channels this song's stems will become."""
     names = {os.path.splitext(f)[0].lower() for f in stems}
-    return sum(p["width"] for p in channel_plan(names, parts, stereo_vocals))
+    return sum(p["width"] for p in channel_plan(names, parts, wide))
 
 
 def _duration(ffprobe, path):

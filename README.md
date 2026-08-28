@@ -92,9 +92,11 @@ however much its two sides differ - nothing at all for a centred vocal, up to
 3 dB for a wide one. Every song is measured as it is mixed and its other channels
 trimmed to match, so the balance you hear is the balance the stems came with.
 
-Tick *Vocals: mix the vocal in stereo* to keep a vocal's width instead. That
-costs one channel per song, about a twentieth of its size, and re-mixes the songs
-already staged without putting any chart back through the converter.
+Tick *Keep the vocal and the backing in stereo* to keep their width instead,
+which matters most for a song with no separate stems, where the whole band comes
+out of the backing. It costs two channels per song, about a tenth of its size,
+and re-mixes the songs already staged without putting any chart back through the
+converter.
 
 ## The command line
 
@@ -104,7 +106,7 @@ Everything the interface does is available without it:
     python -m rb2dx setup --add-library "D:\Charts\Rock Band 3"
     python -m rb2dx setup --download
     python -m rb2dx setup --background black
-    python -m rb2dx setup --vocals stereo
+    python -m rb2dx setup --wide-mix yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
     python -m rb2dx plan

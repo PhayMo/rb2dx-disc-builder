@@ -187,7 +187,7 @@ def stage(settings, sid, source_dir, log=None):
         return False, "the chart has no drums, bass, guitar or vocals"
     plan = [dict(p, files=[present[k] for k in p["keys"]])
             for p in library.channel_plan(set(present), parts,
-                                          settings.stereo_vocals)]
+                                          settings.wide_mix)]
     if not any(p["files"] for p in plan):
         return False, "the song folder has no audio stems"
 

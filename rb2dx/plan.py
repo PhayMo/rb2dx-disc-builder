@@ -29,10 +29,10 @@ PROBLEMS_NAME = "problems.json"
 def channels(settings, song):
     """How many channels this song gets under the settings as they stand.
 
-    Not the count the library scan recorded: singing in stereo costs a channel,
-    and a song has to be priced the way it is about to be built.
+    A wider mix costs a channel or two, and a song has to be priced the way it is
+    about to be built.
     """
-    return library.channels_for(song.stems, song.parts, settings.stereo_vocals)
+    return library.channels_for(song.stems, song.parts, settings.wide_mix)
 
 
 def estimate(settings, song):

@@ -43,7 +43,9 @@ VIDEO_KEYS = ("video_kbps", "background", "video")
 # and a song list another, which hangs the game as the song loads. It reuses the
 # clip it already encoded and only muxes again. The chart and the art are
 # untouched either way, and converting a chart is the expensive part here.
-AUDIO_KEYS = ("mix", "vocals")
+# vocals is what wide was called for the one release before it took in the
+# backing, and is listed so those songs re-mix rather than rebuilding whole.
+AUDIO_KEYS = ("mix", "wide", "vocals")
 AUDIO_STAGES = frozenset(["audio", "vgs", "video"])
 
 # Bumped when the mix itself changes, to re-mix songs staged by an older version
@@ -130,8 +132,8 @@ class Pipeline:
                "mix": MIX, "format": FORMAT}
         # Only songs affected carry the keys below, so nothing already built is
         # disturbed by one of them appearing.
-        if self.settings.stereo_vocals:
-            sig["vocals"] = "stereo"
+        if self.settings.wide_mix:
+            sig["wide"] = True
         if self.settings.black_background:
             sig["background"] = "black"
         # A folder's own video plays behind that song, so swapping it has to
