@@ -44,6 +44,11 @@ PART_ROLES = [
     ("guitar", ("guitar",),                         2),
     ("vocals", ("vocals", "vocals_1", "vocals_2"),  1),
 ]
+# Vocals in stereo instead, for whoever would rather spend the channel: 87 of the
+# 88 shipped entries sing from one channel panned centre, so mono is the shape to
+# default to, but the game reads a list of channels for every part and its own
+# frame rate test sings from two, panned hard left and right.
+STEREO_VOCAL_WIDTH = 2
 # Stems that end up in the backing track when no part claims them, in the order
 # they are mixed. Backing is mono: of the 83 shipped PS2 entries, 71 leave
 # exactly one channel unclaimed by any part and the rest leave none, and the
@@ -77,7 +82,6 @@ class Song:
         self.title = kw.get("title") or self.folder
         self.artist = kw.get("artist") or ""
         self.seconds = kw.get("seconds") or 0.0
-        self.channels = kw.get("channels") or 0
         self.tier = kw.get("tier")
         self.has_art = kw.get("has_art", False)
         self.stems = kw.get("stems") or []
@@ -95,9 +99,8 @@ class Song:
     def as_dict(self):
         return {"library": self.library, "path": self.path, "title": self.title,
                 "artist": self.artist, "seconds": self.seconds,
-                "channels": self.channels, "tier": self.tier,
-                "has_art": self.has_art, "stems": self.stems,
-                "parts": self.parts}
+                "tier": self.tier, "has_art": self.has_art,
+                "stems": self.stems, "parts": self.parts}
 
     @classmethod
     def from_dict(cls, d):
@@ -203,7 +206,7 @@ def drum_roles(names):
     return [{"role": "kit", "width": 2, "keys": numbered}]
 
 
-def channel_plan(names, parts):
+def channel_plan(names, parts, stereo_vocals=False):
     """The channels a song's audio becomes: [{role, width, keys}] in disc order.
 
     names are the stem names in the song folder, parts the instruments the
@@ -217,6 +220,8 @@ def channel_plan(names, parts):
     for role, candidates, width in PART_ROLES:
         if role not in parts:
             continue
+        if role == "vocals" and stereo_vocals:
+            width = STEREO_VOCAL_WIDTH
         keys = [c for c in candidates if c in names]
         claimed.update(keys)
         plan.append({"role": role, "width": width, "keys": keys})
@@ -229,10 +234,10 @@ def channel_plan(names, parts):
     return plan
 
 
-def channels_for(stems, parts):
+def channels_for(stems, parts, stereo_vocals=False):
     """How many audio channels this song's stems will become."""
     names = {os.path.splitext(f)[0].lower() for f in stems}
-    return sum(p["width"] for p in channel_plan(names, parts))
+    return sum(p["width"] for p in channel_plan(names, parts, stereo_vocals))
 
 
 def _duration(ffprobe, path):
@@ -312,7 +317,7 @@ def scan(settings, rescan=False, progress=None, log=None):
                 continue
             song = Song(lib.name, d,
                         title=meta.get("name"), artist=meta.get("artist"),
-                        channels=channels_for(stems, parts), tier=tier,
+                        tier=tier,
                         has_art=any(a in files for a in ART_NAMES),
                         stems=sorted(stems), parts=parts)
             if unchanged and known.get("seconds"):

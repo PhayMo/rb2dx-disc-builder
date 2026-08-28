@@ -12,6 +12,8 @@ disc: this only prices them and says how much room is left.
 import json
 import os
 
+from . import library
+
 # Audio is 4-bit ADPCM at 22050 Hz per channel, and the preview clip is a fixed
 # 30 seconds of stereo on top.
 ADPCM_BYTES_PER_SEC_PER_CH = 22050 * 16 / 28.0
@@ -24,11 +26,20 @@ MARGIN_BYTES = 0.35e9
 PROBLEMS_NAME = "problems.json"
 
 
-def estimate(song, video_kbps):
+def channels(settings, song):
+    """How many channels this song gets under the settings as they stand.
+
+    Not the count the library scan recorded: singing in stereo costs a channel,
+    and a song has to be priced the way it is about to be built.
+    """
+    return library.channels_for(song.stems, song.parts, settings.stereo_vocals)
+
+
+def estimate(settings, song):
     """What a song will weigh on disc, before it has been built."""
-    audio = (song.seconds * song.channels + PREVIEW_SECONDS * 2) \
+    audio = (song.seconds * channels(settings, song) + PREVIEW_SECONDS * 2) \
         * ADPCM_BYTES_PER_SEC_PER_CH
-    video = song.seconds * video_kbps * 1000 / 8.0
+    video = song.seconds * settings.encode_kbps * 1000 / 8.0
     return audio + video
 
 
@@ -43,7 +54,7 @@ def built_at(settings, sid):
 
 
 def measured(settings):
-    """What each already-built song really costs, keyed by its source folder.
+    """(bytes, channels) for each already-built song, by its source folder.
 
     The estimate above is close but runs a little under, mostly because the .pss
     container adds its own overhead, so anything already staged is weighed for
@@ -68,7 +79,8 @@ def measured(settings):
             continue
         try:
             with open(layout, encoding="utf-8") as fp:
-                source = json.load(fp)["source"]
+                info = json.load(fp)
+            source, built_channels = info["source"], info["channels"]
         except (ValueError, KeyError):
             continue
         total = 0
@@ -82,7 +94,7 @@ def measured(settings):
                 break
             total += os.path.getsize(found[0])
         if total:
-            out[source] = total
+            out[source] = (total, built_channels)
     return out
 
 
@@ -90,8 +102,13 @@ def price(settings, songs):
     """Attach a byte cost to every song, measuring the ones already built."""
     built = measured(settings)
     for song in songs:
-        song.bytes = built.get(song.path) or estimate(song, settings.encode_kbps)
-        song.priced_from_build = song.path in built
+        # A song staged with a different number of channels is about to be mixed
+        # again, so what it weighs now is not what it will weigh.
+        was = built.get(song.path)
+        if was and was[1] == channels(settings, song):
+            song.bytes, song.priced_from_build = was[0], True
+        else:
+            song.bytes, song.priced_from_build = estimate(settings, song), False
     return songs
 
 

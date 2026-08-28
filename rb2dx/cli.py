@@ -52,6 +52,9 @@ def cmd_setup(args):
     if args.background:
         s.background = args.background
         changed = True
+    if args.vocals:
+        s.stereo_vocals = args.vocals == "stereo"
+        changed = True
     if args.jobs:
         s.jobs = args.jobs
         changed = True
@@ -118,6 +121,7 @@ def cmd_setup(args):
         print("  videos       %s%s" % (s.venue_dir or "-",
                                        "" if s._venue_dir else " (bundled)"))
         print("  video        %d kbps" % s.encode_kbps)
+        print("  vocals       %s" % ("stereo" if s.stereo_vocals else "mono"))
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
         print("  base songs   %s" % ("left out" if s.drop_demos else "kept"))
@@ -144,7 +148,7 @@ def cmd_scan(args):
         for song in songs:
             print("  %-8s %-11s %5.1f min  %d ch  %s"
                   % (song.sid, library.tier_name(song.tier), song.minutes,
-                     song.channels, song.label))
+                     planner.channels(s, song), song.label))
     for folder, why in skipped:
         print("  skipped %-44s %s" % (folder[:44], why))
     print("\n%d songs usable" % len(songs))
@@ -250,6 +254,9 @@ def main(argv=None):
                    help="what plays behind the songs; black needs no videos "
                         "and fits about two and a half times as many songs")
     p.add_argument("--video", type=int, metavar="KBPS")
+    p.add_argument("--vocals", choices=("mono", "stereo"),
+                   help="how the vocal is mixed; stereo keeps its width at the "
+                        "cost of a channel per song")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--ceiling", type=float, metavar="GB")
     p.add_argument("--demo-songs", choices=("keep", "drop"),

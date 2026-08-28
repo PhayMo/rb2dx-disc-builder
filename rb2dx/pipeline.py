@@ -38,6 +38,19 @@ ALL_STAGES = frozenset(name for name, _ in SONG_STAGES)
 # and art are still good, so only its video is encoded again.
 VIDEO_KEYS = ("video_kbps", "background", "video")
 
+# And the parts only the mix depends on. A song's audio is muxed into its .pss,
+# so the video stage has to run as well or the disc would ship a mix one width
+# and a song list another, which hangs the game as the song loads. It reuses the
+# clip it already encoded and only muxes again. The chart and the art are
+# untouched either way, and converting a chart is the expensive part here.
+AUDIO_KEYS = ("mix", "vocals")
+AUDIO_STAGES = frozenset(["audio", "vgs", "video"])
+
+# Bumped when the mix itself changes, to re-mix songs staged by an older version
+# without putting their charts through the converter again. 2: what a channel
+# lost being mixed down to mono is measured and the balance restored.
+MIX = 2
+
 # ps2str takes short plain filenames in a fixed scratch folder, so only one song
 # can be muxed at a time.
 _MUX_LOCK = threading.Lock()
@@ -114,9 +127,11 @@ class Pipeline:
                 stems.append([name, 0, 0])
         sig = {"source": song.path, "stems": stems,
                "video_kbps": self.settings.encode_kbps,
-               "format": FORMAT}
+               "mix": MIX, "format": FORMAT}
         # Only songs affected carry the keys below, so nothing already built is
         # disturbed by one of them appearing.
+        if self.settings.stereo_vocals:
+            sig["vocals"] = "stereo"
         if self.settings.black_background:
             sig["background"] = "black"
         # A folder's own video plays behind that song, so swapping it has to
@@ -142,10 +157,16 @@ class Pipeline:
         want = self._signature(song)
         if built == want:
             return frozenset()
-        rest = lambda sig: {k: v for k, v in sig.items() if k not in VIDEO_KEYS}
-        if rest(built) == rest(want):
-            return frozenset(["video"])
-        return ALL_STAGES
+        changed = {k for k in set(built) | set(want)
+                   if built.get(k) != want.get(k)}
+        if not changed <= set(VIDEO_KEYS) | set(AUDIO_KEYS):
+            return ALL_STAGES
+        stages = set()
+        if changed & set(VIDEO_KEYS):
+            stages |= {"video"}
+        if changed & set(AUDIO_KEYS):
+            stages |= AUDIO_STAGES
+        return frozenset(stages)
 
     def _write_stamp(self, song):
         with open(self._stamp_path(song.sid), "w", encoding="utf-8") as fp:
@@ -180,9 +201,11 @@ class Pipeline:
         stale = self._stale(song)
         if stale == ALL_STAGES:
             self.log("%s: source changed, rebuilding" % song.label)
+        elif stale == AUDIO_STAGES:
+            self.log("%s: mixing its audio again" % song.label)
         elif stale:
-            self.log("%s: background changed, encoding its video again"
-                     % song.label)
+            self.log("%s: encoding %s again"
+                     % (song.label, " and ".join(sorted(stale))))
 
         for name, doing in SONG_STAGES:
             self._check()

@@ -5,158 +5,107 @@ by PhayMo
 Builds a custom Rock Band 2 Deluxe disc for the PlayStation 2 from folders of
 Clone Hero songs. You choose the songs, it converts the audio, charts, album art
 and background video into the formats the console expects, packs them into the
-game's archive and writes a bootable ISO.
-
-Everything it produces has been tested on real hardware.
+game's archive and writes a bootable ISO. Everything it produces has been tested
+on real hardware.
 
 ![The Songs page](docs/songs-page.png)
 
 ## What you need
 
-**Windows.** The chart converter runs Magma, the official Rock Band compiler,
-which is a Windows program.
-
-**Python 3.8 or newer**, from [python.org](https://www.python.org/downloads/),
-if you are running from the source. Tick *Add Python to PATH* during setup. The
-packaged `.exe` needs nothing installed.
-
-**Your own copy of Rock Band 2 Deluxe for PS2**, unpacked to a folder - the one
-containing `SLUS_218.00` and `gen\MAIN_0.ARK`. This tool does not include any
-game files.
-
-**Songs in Clone Hero layout**: one folder per song holding `notes.mid` (or
-`notes.chart`), `song.ini`, the audio, and `album.png`. Separate stems such as
-`guitar.ogg` and `drums_1.ogg` are ideal, since the game can then mute each part
-as it is missed, but a single mixed `song.ogg` works too - as do `.wav`, `.mp3`
-and `.opus`. With one mixed file the whole song plays from the backing track, so
-missed notes do not drop out.
-
-A song offers exactly the parts its chart plays: a guitar-only chart becomes a
-guitar-only song, and its disc space goes down accordingly. Stems for a part the
-chart skips are not wasted - they are mixed into the backing track, so the song
-still sounds complete. Lyrics on their own are not a vocals part; most Clone Hero
-charts carry them just to show the words.
-
-**Background videos** are included - eleven short clips in `venues\`, one picked
-per song and looped behind it. Drop your own files in that folder, or point the
-Setup page at a different one. They only need to be a few seconds long.
-
-A song that brings its own video plays that instead, the way Clone Hero does it:
-a file named `video` or `background` in the song folder, in any format Clone Hero
-accepts for an animated background - `.mp4`, `.avi`, `.webm`, `.ogv`, `.mpeg` -
-or `.mkv`, `.mov`, `.mpg` and `.m4v` besides. `song.ini`'s `video_start_time` is
-honoured, so a video meant to start part-way in still lines up, and a short one
-loops rather than running out.
-
-A still `background.png` or `.jpg` is left alone, and that song gets an animated
-venue clip like any other. Clone Hero's animated highways are not backgrounds
-either: Rock Band 2 draws its own note track.
-
-Or set *Background* to *Black* on the Setup page and have no video at all, which
-is much the cheapest thing you can do to a disc - see *Choosing songs that fit*
-below. Then no video files are needed, and songs that brought their own are
-black behind too.
-
-**`ps2str.exe`**, from Sony's PS2 SDK. It muxes the video and audio together.
-It cannot be distributed with this tool, so you have to supply your own copy.
-Everything else - FFmpeg, Onyx, dtab and Mackiloha - the Setup page downloads
-for you in about half a minute.
+- **Windows.** The chart converter runs Magma, the official Rock Band compiler.
+- **Your own copy of Rock Band 2 Deluxe for PS2**, unpacked - the folder holding
+  `SLUS_218.00` and `gen\MAIN_0.ARK`. No game files are included here.
+- **Songs in Clone Hero layout**: `notes.mid` or `notes.chart`, `song.ini`, the
+  audio and `album.png`. Separate stems are ideal, since the game can then mute
+  each part as it is missed, but one mixed `song.ogg` works too, as do `.wav`,
+  `.mp3` and `.opus`.
+- **`ps2str.exe`** from Sony's PS2 SDK, which cannot be distributed with this.
+  Everything else - FFmpeg, Onyx, dtab, Mackiloha - the Setup page downloads.
+- **Python 3.8 or newer** if you run from the source. The packaged `.exe` needs
+  nothing installed.
+- About 30 GB free for the work folder. A hundred-song disc takes a couple of
+  hours.
 
 ![The tools list, once everything is in place](docs/tools-page.png)
 
-Budget around 30 GB of free space for the work folder, and expect a full disc of
-a hundred songs to take a couple of hours.
+A song offers exactly the parts its chart plays, so a guitar-only chart becomes a
+guitar-only song. Stems for a part the chart skips go into the backing track
+rather than being dropped. Lyrics on their own are not a vocals part.
+
+Eleven background clips come with it, in `venues\`, one picked per song and
+looped behind it - drop your own in there instead. A song holding its own `video`
+or `background` file plays that, in any format Clone Hero accepts, and
+`song.ini`'s `video_start_time` is honoured. Or set *Background* to *Black* and
+have none at all, which fits far more songs.
 
 ## Running it
 
-If you have the packaged release, unzip it and run `RB2DX Disc Builder.exe`. The
-first start takes a good twenty seconds while it unpacks itself, with nothing on
-screen until the window appears - it has not hung, so give it a moment before
-double-clicking again.
-
-From the source, double-click `run.bat`, or:
-
-    python -m rb2dx gui
+Unzip the release and run `RB2DX Disc Builder.exe`. The first start takes a good
+twenty seconds while it unpacks itself, with nothing on screen until the window
+appears. From the source, `run.bat`, or `python -m rb2dx gui`.
 
 ![The Setup page](docs/setup-page.png)
 
-Then, on each page in turn:
-
-1. **Setup** - point at your game folder, your video folder, a work folder and
-   where to save the ISO. Press *Download what's missing* to fetch the tools,
-   then select `ps2str` and use *Locate* to point at your copy.
-2. **Songs** - add your song folders and press *Scan for songs*. Tick the ones
-   you want. The bar at the bottom shows how full the disc is as you go, and each
-   folder shows how many of its songs you have chosen.
-3. **Build** - press *Build the disc* and watch the log. Songs that cannot be
-   converted are set aside with a reason rather than stopping the build.
-4. **Results** - the finished ISO, plus anything that was left off and why.
+Work through the pages in turn: **Setup** for your folders and tools, **Songs**
+to scan and tick what you want, **Build**, then **Results**. Songs that cannot be
+converted are set aside with a reason rather than stopping the build.
 
 Burn the ISO to a DVD-R, or run it from a hard drive loader.
 
 ## Playing in an emulator
 
-A real PS2 boots the ISO this tool writes; PCSX2 does not. With identical files
-on it, an image written here fails where one written by ImgBurn boots, so it is
-in how the image is put together rather than anything on the disc.
+A real PS2 boots the ISO this tool writes; PCSX2 does not. With identical files on
+it, an image written by ImgBurn boots where one written here fails, so it is in
+how the image is put together rather than anything on the disc.
 
-So tick *Also save the disc's files in a folder*, under *Save the ISO as* on the
-Setup page. The build then leaves the disc's contents in the folder named in
-*Save the folder as* - beside the ISO unless you point it somewhere else - and
-you make the image yourself: open [ImgBurn](https://www.imgburn.com/), choose
-*Build*, set the destination to an image file, drop that folder in as the source,
-and on the *Options* tab pick file system *ISO9660 + UDF* with UDF revision
-1.02. Everything lands at the root of the disc, which is where the console
-expects it.
-
-The folder costs no disc space worth speaking of: its files are hard links to the
-ones the build already wrote, as long as both sit on the same drive.
+Tick *Also save the disc's files in a folder* on the Setup page, then make the
+image yourself in [ImgBurn](https://www.imgburn.com/): *Build* mode, destination
+an image file, that folder as the source, and file system *ISO9660 + UDF* with
+UDF revision 1.02. The folder costs almost no space, its files being hard links
+to what the build already wrote.
 
 ## Choosing songs that fit
 
 The stock Deluxe disc is 7.62 GiB and that is the default limit, because a disc
 that size is known to boot on real hardware. A song costs roughly 11 MB a minute
-at the default video quality, so a three minute song is about 40 MB.
+at the default video quality - about 40 MB for three minutes - and two thirds of
+that is the video. Setting *Background* to *Black* spends it on songs instead:
+the same 33 songs that weigh 2.54 GB behind venue clips come to 0.99 GB, so about
+two and a half times as many fit. The note track, crowd and scoring are drawn by
+the game and look exactly as they always did.
 
-Two thirds of that is the video. Setting *Background* to *Black* on the Setup
-page spends it on songs instead: the same 33 songs that weigh 2.54 GB behind
-venue clips come to 0.99 GB against a black background, so about two and a half
-times as many fit. There is still a video stream in each song - the game reads
-its audio out of one and finds none without it - but black at 150 kbps costs
-almost nothing. You lose the venues; the note track, crowd and scoring are drawn
-by the game and look exactly as they always did.
-
-Which songs to leave off is up to you: the usage bar turns red and says how far
-over you are, and nothing is dropped behind your back. Sorting by *On disc* puts
-the most expensive songs at the top, which is the quickest way to claw back
-space, and the *Difficulty* column is there if you would rather thin out the
-hardest ones. Lowering the video quality on the Setup page is the gentler lever -
-it costs picture quality rather than songs.
-
-Changing either one rebuilds the songs already staged, since their video has to
-be encoded again, and the usage bar prices them at the new size straight away.
-
-The ISO stage refuses to write an image over the limit, so an over-full
-selection fails at the end rather than producing a disc that will not boot.
+The usage bar turns red when you are over and says by how much; nothing is
+dropped behind your back. Sorting by *On disc* puts the most expensive songs
+first, and lowering the video quality is the gentler lever. The ISO stage refuses
+to write an image over the limit.
 
 *Leave out the four songs the base game came with*, on by default, buys back
-about 264 MB - six or so of your own songs. Three of those four are never in the
-setlist and their audio is in a format this build cannot play at all; the fourth
-is Afterlife, the Custom Edition's one playable song, which also has its entry
-taken out of the game's song list so nothing is left pointing at missing files.
-Turn it off if you would rather keep them.
+about 264 MB. Three of them never appear in the setlist and cannot play on this
+build at all; the fourth is Afterlife.
+
+## Audio
+
+The drum kit and the guitar are carried in stereo, and the kick, snare, bass,
+vocal and backing in one channel each, which is the shape the game's own songs
+use. A stereo stem going into one of those is averaged into it, and that costs
+however much its two sides differ - nothing at all for a centred vocal, up to
+3 dB for a wide one. Every song is measured as it is mixed and its other channels
+trimmed to match, so the balance you hear is the balance the stems came with.
+
+Tick *Vocals: mix the vocal in stereo* to keep a vocal's width instead. That
+costs one channel per song, about a twentieth of its size, and re-mixes the songs
+already staged without putting any chart back through the converter.
 
 ## The command line
 
-Everything the interface does is also available without it, which is handy for
-rebuilding after a change:
+Everything the interface does is available without it:
 
     python -m rb2dx setup --base-game "D:\RB2DXCE-PS2" --work "D:\rb2dx\work"
     python -m rb2dx setup --add-library "D:\Charts\Rock Band 3"
     python -m rb2dx setup --download
-    python -m rb2dx setup --demo-songs keep
-    python -m rb2dx setup --disc-folder yes
     python -m rb2dx setup --background black
+    python -m rb2dx setup --vocals stereo
+    python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
     python -m rb2dx plan
     python -m rb2dx build
@@ -165,83 +114,49 @@ Both share one settings file, in `%LOCALAPPDATA%\rb2dxbuilder\settings.json`.
 
 ## When something goes wrong
 
-**A tool will not download.** FFmpeg comes from gyan.dev, and if that site is
-unreachable or its certificate has lapsed, the same build is fetched from its
-GitHub releases instead, so pressing the button again is usually all it takes. If
-every source fails, the message says which and why - a certificate refused for
-being out of date can also mean this machine's clock is wrong - and *Locate* will
-take a copy you download yourself.
+**A tool will not download.** FFmpeg falls back to a GitHub mirror, and a
+certificate this machine refuses is tried again against a bundled list, so
+pressing the button again is usually all it takes. *Locate* will take a copy you
+download yourself.
 
-**A song is left off the disc.** The Results page says which stage it failed and
-why. Missing album art and charts that Magma rejects are the usual causes.
-Failures are remembered so later builds do not stall on the same song; *Try the
-failed songs again* clears that.
+**A song is left off the disc.** The Results page says which stage failed and
+why, in the converter's own words, with the path to its log. Missing album art
+and charts Magma rejects are the usual causes. Plenty of what a Clone Hero chart
+gets away with is repaired on the way through rather than costing you the song:
+track numbers of zero, chords of four or five gems, nested vocal phrases, notes
+with no syllable on them, a stray second `[end]` marker. Failures are remembered
+so later builds do not stall on the same song; *Try the failed songs again*
+clears that.
 
-**A song's chart will not convert.** Plenty of things a Clone Hero chart gets
-away with, Rock Band's compiler will not, and these are put right on the way
-through rather than costing you the song: an album track number of zero, chords
-of four or five gems where the game can draw three, vocal phrases nested inside
-one another, and lyrics belonging to a part the song does not offer, which are
-dropped along with it. Charts that end abruptly are handled as well - a second
-`[end]` marker, or one struck so close to the last note that the converter's own
-tidying lands past it - as are sung notes with no syllable on them, a syllable
-sitting just off its note, and two notes sounding at once where the game sings
-one. Folder names holding characters the console cannot print are fine too.
+**The disc will not boot.** Check the ISO is within the size limit and that the
+game folder you pointed at boots as it is. In PCSX2 it never will - see above.
 
-Whatever is left is reported in the song's own words: the Results page gives the
-compiler's complaint and where the full log sits, one file per song under
-`charts` in your work folder.
-
-**The disc will not boot.** Check the ISO is not larger than the size limit, and
-that the game folder you pointed at boots as-is. In PCSX2 it never will - see
-*Playing in an emulator* above.
-
-**A song hangs on the loading screen or crashes as it loads.** Almost always a
-song list entry that promises something the song cannot deliver: an instrument
-offered with no audio channels behind it, or with nothing charted for it, does it
-every time. Nothing the game ships breaks that rule, so nothing built here does
-either - the parts a chart plays decide the channels, the ranks and the chart
-tracks together, and the chart's drum mix events are checked against the audio
-before a song ships. If a song still crashes, please report it.
-
-**The notes do not line up with the music.** Fixed already: the chart converter
-pushes a chart forward by up to three seconds, by a whole number of seconds, so
-that its first note is not right at the start, and the audio is given exactly
-that much silence to match. It is measured per song rather than assumed. If a
-song still feels out of time, say which one.
-
-**No preview audio until you hover one particular song.** Fixed already: every
-preview clip is stored together at the front of the archive, which is what the
-game's streaming needs. Nothing to do.
+**A song crashes as it loads.** Almost always a song list entry promising
+something the song cannot deliver, an instrument with no audio channels or
+nothing charted for it. Nothing the game ships breaks that rule and nothing built
+here should either, so if a song still crashes, please report it.
 
 ## How it works
 
-Each song goes through these stages, and songs run in parallel:
+Songs build in parallel, each one through: mixing the stems at 22050 Hz into one
+channel group per part the chart plays; converting the chart with Onyx and Magma;
+turning the album art into a 256x256 paletted PS2 texture; encoding the mix to
+PlayStation 4-bit ADPCM; and encoding the background to MPEG-2 and muxing the two
+into a `.pss`. Then the songs and the compiled song list go into the game's
+archive, an ISO9660/UDF image is written, and every shipped file is read back out
+of the archive and compared.
 
-| Stage | What happens |
-| --- | --- |
-| audio | Stems are mixed at 22050 Hz into one channel group per part the chart plays, everything else into the backing, plus a 30 second preview |
-| charts | Onyx and Magma convert the chart to Rock Band 2 form; parts the song does not offer are dropped before Magma sees them, and lyrics, chords and lower difficulties are repaired so it accepts the rest |
-| art | Album art becomes a 256x256 8-bit paletted PS2 texture |
-| vgs | The mix is encoded to PlayStation 4-bit ADPCM, lined up with the silence the chart converter put in front of the song |
-| video | The song's own video, a venue clip if it has none, or black, is encoded to MPEG-2 and muxed with the audio into a `.pss` |
-| archive | Song files and the compiled song list are injected into the game's archive, which is repacked |
-| iso | A bootable ISO9660/UDF image is written |
-| verify | Every shipped file is read back out of the archive and compared |
-
-Work is cached per song, so adding one song to a finished disc only builds that
-one.
+Work is cached per song, so adding one song to a finished disc builds that one.
+Changing a setting only redoes the stages that read it.
 
 ## Packaging it yourself
 
     pip install pyinstaller
     pyinstaller rb2dxbuilder.spec
 
-That writes `dist\RB2DX Disc Builder\`, about 90 MB, which can be zipped and
-shared as-is. It is a folder rather than a single file so that the `venues`
-folder stays visible: clips dropped in there are used without changing any
-setting. None of the external tools are included, since the program downloads
-those on first run.
+That writes `dist\RB2DX Disc Builder\`, about 90 MB, ready to zip. It is a folder
+rather than a single file so the `venues` folder stays visible: clips dropped in
+there are used without changing any setting.
 
 ## Thanks
 

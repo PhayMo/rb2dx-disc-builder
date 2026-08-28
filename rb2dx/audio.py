@@ -15,6 +15,7 @@ the folder and the parts its chart plays.
 
 import json
 import os
+import re
 
 from . import library, proc
 from .library import AUDIO_EXT, read_ini
@@ -27,6 +28,16 @@ RATE = 22050
 LEAD_SILENCE_MS = 3000
 PREVIEW_SECS = 30
 DRUM_ROLES = ("kick", "snare", "kit")
+
+# What ffmpeg is asked for when measuring a mixdown: one figure for the whole
+# stream, no per-channel breakdown to read past.
+MEASURE = "measure_perchannel=none:measure_overall=RMS_level"
+# Mixing two channels into one cannot cost more than 3 dB, and four cannot cost
+# more than 6. Anything past that is a measurement gone wrong, not a mix.
+MAX_FOLD_DB = 6.0
+# The song list carries levels to a tenth of a dB, so anything that rounds away
+# to nothing is not worth putting in the file or the log.
+MIN_TRIM_DB = 0.05
 
 
 def stems_in(folder):
@@ -54,6 +65,78 @@ def probe_audio(settings, path):
         capture_output=True, text=True)
     d = json.loads(out.stdout)
     return int(d["streams"][0]["channels"]), float(d["format"]["duration"])
+
+
+def fold_loss(settings, files, width):
+    """What a role loses by playing from one channel instead of two, in dB.
+
+    Averaging the two sides keeps whatever they hold in common and costs up to
+    3 dB of whatever they do not, so a wide stereo vocal arrives quieter against
+    the band than it was in the source while a close-to-mono one barely moves.
+    The figure is measured rather than assumed: the role is mixed down both ways
+    and the results compared. A role the game gives two channels keeps its sides
+    and loses nothing.
+    """
+    if width != 1:
+        return 0.0
+    channels = [probe_audio(settings, f)[0] for f in files]
+    if not any(ch > 1 for ch in channels):
+        return 0.0
+
+    parts, wide, thin = [], [], []
+    for i, ch in enumerate(channels):
+        # Mono stems go through both sides untouched: they fold to nothing, but
+        # they are part of what the role sounds like either way.
+        parts.append("[%d:a]aresample=%d,asplit=2[w%d][t%d]" % (i, RATE, i, i))
+        parts.append("[w%d]%s[wide%d]" % (i, pan_expr(ch, 2), i))
+        parts.append("[t%d]%s[thin%d]" % (i, pan_expr(ch, 1), i))
+        wide.append("[wide%d]" % i)
+        thin.append("[thin%d]" % i)
+
+    for labels, name in ((wide, "wide"), (thin, "thin")):
+        joined = "".join(labels)
+        if len(labels) > 1:
+            parts.append("%samix=inputs=%d:normalize=0,astats@%s=%s[%s]"
+                         % (joined, len(labels), name, MEASURE, name))
+        else:
+            parts.append("%sastats@%s=%s[%s]" % (joined, name, MEASURE, name))
+
+    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-nostats", "-loglevel",
+           "info"]
+    for f in files:
+        cmd += ["-i", f]
+    cmd += ["-filter_complex", ";".join(parts),
+            "-map", "[wide]", "-f", "null", os.devnull,
+            "-map", "[thin]", "-f", "null", os.devnull]
+    r = proc.run(cmd, capture_output=True, text=True)
+
+    levels = {}
+    for name, value in re.findall(
+            r"\[astats@(\w+) [^\]]*\] RMS level dB:\s*(-?[\d.]+)",
+            r.stderr or ""):
+        levels[name] = float(value)
+    if len(levels) != 2:
+        # Nothing to measure, silence among them: leave the balance alone.
+        return 0.0
+    # Never a boost, and never more than mixing down can account for.
+    return max(0.0, min(levels["wide"] - levels["thin"], MAX_FOLD_DB))
+
+
+def levels_for(plan, losses):
+    """The per-channel dB for songs.dta, restoring what the mixdown took.
+
+    A channel that lost 2 dB against one that lost none has to come back up by
+    that much or the song is not the mix it was, but no shipped entry asks the
+    game for a boost - of 748 retail channels, 623 are cut and 125 sit at zero -
+    so the same balance is had by holding the worst-hit channel at zero and
+    trimming the rest to meet it.
+    """
+    worst = max(losses.values()) if losses else 0.0
+    out = []
+    for p in plan:
+        db = round(losses.get(p["role"], 0.0) - worst, 1)
+        out += [db] * p["width"]
+    return out
 
 
 def pan_expr(src_ch, want_ch):
@@ -103,7 +186,8 @@ def stage(settings, sid, source_dir, log=None):
     if not parts:
         return False, "the chart has no drums, bass, guitar or vocals"
     plan = [dict(p, files=[present[k] for k in p["keys"]])
-            for p in library.channel_plan(set(present), parts)]
+            for p in library.channel_plan(set(present), parts,
+                                          settings.stereo_vocals)]
     if not any(p["files"] for p in plan):
         return False, "the song folder has no audio stems"
 
@@ -192,8 +276,21 @@ def stage(settings, sid, source_dir, log=None):
         return False, "building the preview failed: %s" % (
             (r.stderr or r.stdout).strip()[:160])
 
+    losses = {}
+    for p in plan:
+        if not p["files"]:
+            continue
+        db = fold_loss(settings, p["files"], p["width"])
+        if db >= MIN_TRIM_DB:
+            losses[p["role"]] = db
+    vols = levels_for(plan, losses)
+    if log and losses:
+        log("mixing down cost %s, so the rest is trimmed to match"
+            % ", ".join("%s %.1f dB" % (role, db)
+                        for role, db in sorted(losses.items())))
+
     # Assign channel indices and derive the songs.dta arrays.
-    tracks, pans, vols, cores = {}, [], [], []
+    tracks, pans, cores = {}, [], []
     ch_i = 0
     drum_ch = []
     for p in plan:
@@ -209,7 +306,6 @@ def stage(settings, sid, source_dir, log=None):
             tracks["vocals"] = idxs
         for j, _ in enumerate(idxs):
             pans.append(0.0 if p["width"] == 1 else (-1.0 if j % 2 == 0 else 1.0))
-            vols.append(0.0)
             cores.append(1 if p["role"] == "guitar" else -1)
     if drum_ch:
         tracks["drum"] = drum_ch
@@ -236,6 +332,17 @@ def stage(settings, sid, source_dir, log=None):
         "main_ogg": os.path.basename(main_out),
         "prev_ogg": os.path.basename(prev_out),
     }
+    # How much silence the chart needs is worked out by the chart stage and left
+    # in here, so mixing a song again on its own must not throw that away: the
+    # figure belongs to the chart and the audio it describes has not moved.
+    if os.path.exists(layout_path):
+        try:
+            with open(layout_path, encoding="utf-8") as fp:
+                lead = json.load(fp).get("extra_lead_ms")
+        except (OSError, ValueError):
+            lead = None
+        if lead is not None:
+            info["extra_lead_ms"] = lead
     with open(layout_path, "w", encoding="utf-8") as fp:
         json.dump(info, fp, indent=2)
 

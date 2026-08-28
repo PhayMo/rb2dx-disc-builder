@@ -22,6 +22,7 @@ original .pss byte for byte, which is how these settings were confirmed.
 """
 
 import hashlib
+import json
 import os
 import random
 import shutil
@@ -230,6 +231,15 @@ def outputs(settings, sid):
             os.path.join(d, "%s.pss" % sid))
 
 
+def encoded_from(m2v):
+    """What the staged clip was encoded from, or {} if that is not recorded."""
+    try:
+        with open(m2v + ".json", encoding="utf-8") as fp:
+            return json.load(fp)
+    except (OSError, ValueError):
+        return {}
+
+
 def is_done(settings, sid):
     m2v, pss = outputs(settings, sid)
     return (os.path.exists(m2v) and os.path.exists(pss)
@@ -264,14 +274,28 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
                           (", %.2fs of black first" % delay) if delay else ""))
 
     m2v, pss = outputs(settings, sid)
-    r = encode_video(settings, venue, m2v, vid_secs, start, delay)
-    if r.returncode != 0 or not os.path.exists(m2v) or os.path.getsize(m2v) == 0:
-        return False, "could not encode the background video: %s" % (
-            (r.stderr or r.stdout).strip()[:160])
-    if log:
-        w, h, fps, br = (probe_video(settings, m2v) + ["?"] * 4)[:4]
-        log("video: %sx%s @ %s, %s bit/s, %.2fs (%.1f MB)"
-            % (w, h, fps, br, vid_secs, os.path.getsize(m2v) / 1048576.0))
+    # The song's audio lives in the .pss alongside the video, so a re-mixed song
+    # has to come back through here even though nothing about its background has
+    # changed. Encoding the clip again is the expensive half and there is no need
+    # for it when the clip that is already staged was made from the same things.
+    want = {"clip": os.path.basename(venue), "kbps": settings.encode_kbps,
+            "seconds": round(vid_secs, 2), "start": round(start, 3),
+            "delay": round(delay, 3)}
+    if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
+        if log:
+            log("video: keeping the clip already encoded for this song")
+    else:
+        r = encode_video(settings, venue, m2v, vid_secs, start, delay)
+        if r.returncode != 0 or not os.path.exists(m2v) \
+                or os.path.getsize(m2v) == 0:
+            return False, "could not encode the background video: %s" % (
+                (r.stderr or r.stdout).strip()[:160])
+        with open(m2v + ".json", "w", encoding="utf-8") as fp:
+            json.dump(want, fp, indent=1)
+        if log:
+            w, h, fps, br = (probe_video(settings, m2v) + ["?"] * 4)[:4]
+            log("video: %sx%s @ %s, %s bit/s, %.2fs (%.1f MB)"
+                % (w, h, fps, br, vid_secs, os.path.getsize(m2v) / 1048576.0))
 
     mux(settings, m2v, vgs, pss, rate)
     return True, ("%s, %d ch audio, %.1f MB pss"
