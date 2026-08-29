@@ -83,6 +83,8 @@ class Section(ttk.LabelFrame):
         super().__init__(parent, text=" %s " % title, padding=PAD, **kw)
         self.columnconfigure(1, weight=1)
         self._row = 0
+        self._hints = []
+        self.bind("<Configure>", self._wrap_hints)
 
     def add_row(self, label, widget, extra=None, hint=None):
         ttk.Label(self, text=label).grid(row=self._row, column=0, sticky="w",
@@ -92,11 +94,27 @@ class Section(ttk.LabelFrame):
             extra.grid(row=self._row, column=2, sticky="w", padx=(6, 0), pady=3)
         self._row += 1
         if hint:
-            ttk.Label(self, text=hint, foreground="#666").grid(
-                row=self._row, column=1, columnspan=2, sticky="w",
-                pady=(0, 4))
+            note = ttk.Label(self, text=hint, foreground="#666", justify="left")
+            note.grid(row=self._row, column=1, columnspan=2, sticky="w",
+                      pady=(0, 4))
+            self._hints.append(note)
             self._row += 1
         return widget
+
+    def _wrap_hints(self, event):
+        """Break the grey notes to the width of the box, whatever it is now.
+
+        A label wraps only where it is told to, so a long note runs off the side
+        of the window until it is given a width to work to.
+        """
+        first = self.grid_bbox(column=0, row=0)
+        indent = (first[2] + PAD) if first else 0
+        room = max(event.width - indent - 3 * PAD, 200)
+        for note in self._hints:
+            # Only when it has really changed: configuring a label from inside a
+            # resize sends another resize, and the two would chase each other.
+            if int(note.cget("wraplength") or 0) != room:
+                note.configure(wraplength=room)
 
 
 class PathRow:
