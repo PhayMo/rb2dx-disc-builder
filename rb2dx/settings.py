@@ -43,6 +43,10 @@ DEFAULTS = {
     # nothing at all. The video is about two thirds of what a song costs, so
     # black fits roughly two and a half times as many of them.
     "background": "venues",
+    # Which shape the videos are drawn for: "4:3" as the console plays them, or
+    # "16:9" squeezed to suit the game's own widescreen setting. See
+    # video.WIDE_WIDTH; the wrong one of the two looks stretched or narrow.
+    "screen": "4:3",
     "ceiling_bytes": RETAIL_ISO_BYTES,
     # Carry the vocal and the backing in two channels rather than one, keeping
     # the stereo that averaging them into one throws away. Costs two channels of
@@ -64,6 +68,8 @@ DEFAULTS = {
 VIDEO_EXT = (".mp4", ".webm", ".mkv", ".avi", ".mov", ".m4v", ".mpg", ".mpeg")
 
 BACKGROUNDS = ("venues", "black")
+
+SCREENS = ("4:3", "16:9")
 
 # A black background still has to be encoded, because the game reads a song's
 # audio out of a video stream and finds none without one, but black at this rate
@@ -135,6 +141,7 @@ class Settings:
         self.video_kbps = int(merged["video_kbps"])
         self.background = (merged["background"] if merged["background"]
                            in BACKGROUNDS else "venues")
+        self.screen = merged["screen"] if merged["screen"] in SCREENS else "4:3"
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         # Named stereo_vocals in the first release that had it, before it took in
         # the backing as well.
@@ -169,6 +176,7 @@ class Settings:
                 "venue_dir": self._venue_dir,
                 "video_kbps": self.video_kbps,
                 "background": self.background,
+                "screen": self.screen,
                 "ceiling_bytes": self.ceiling_bytes,
                 "wide_mix": self.wide_mix,
                 "jobs": self.jobs,
@@ -205,6 +213,11 @@ class Settings:
     def encode_kbps(self):
         """The bitrate the video stage really encodes at."""
         return BLACK_KBPS if self.black_background else self.video_kbps
+
+    @property
+    def widescreen(self):
+        """Draw the videos for a game set to 16:9 rather than 4:3."""
+        return self.screen == "16:9"
 
     def work_dir(self, *parts):
         if not self.work:

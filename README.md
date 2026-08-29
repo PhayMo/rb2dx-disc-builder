@@ -98,6 +98,12 @@ out of the backing. It costs two channels per song, about a tenth of its size,
 and re-mixes the songs already staged without putting any chart back through the
 converter.
 
+The half minute the song list plays is cut from the finished mix and folded down
+the way the console folds it, levels and all, so a song is as loud in the list as
+it is when you play it. Where it starts comes from `preview_start_time` in
+`song.ini`; charts made from other games usually carry a -1 there, meaning nobody
+chose one, and those start half a minute in.
+
 ## Video
 
 The background is MPEG-2 at 400x304, in the picture shape the game's own videos
@@ -110,6 +116,15 @@ cannot draw the same way twice, and a still picture redrawn a little differently
 each frame crawls on a television. Footage that really moves is left sharp.
 Neither changes what a song costs on the disc.
 
+The console draws that frame across the whole screen, so with the game's own
+*Widescreen* setting on it comes out a third wider than it was drawn. Set
+*Picture* to *16:9* and the disc is made for that: each clip is framed 16:9 and
+then squeezed into the 400 the stream carries, and the stretch the game applies
+undoes the squeeze. A widescreen clip also keeps the sides that 4:3 has to crop
+away. Pick it only if you play that way - on a 4:3 screen the same disc looks a
+third too narrow - and set the game to 16:9 and progressive scan to match.
+Emulator users usually want it; a standard-definition television does not.
+
 ## The command line
 
 Everything the interface does is available without it:
@@ -118,6 +133,7 @@ Everything the interface does is available without it:
     python -m rb2dx setup --add-library "D:\Charts\Rock Band 3"
     python -m rb2dx setup --download
     python -m rb2dx setup --background black
+    python -m rb2dx setup --screen 16:9
     python -m rb2dx setup --wide-mix yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan

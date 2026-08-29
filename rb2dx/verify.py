@@ -92,12 +92,14 @@ def verify_song(settings, sid, check_dir, say):
     # multichannel main .vgs - retail keeps the main mix only inside the .pss.
     # The _onyx.mid is Onyx's chart before midfix.py fixes it up, kept for
     # diffing; the conformed <sid>.mid is what ships.
-    skip = {"out.vgs", "layout.json", "onyx_songs.dta", "%s.vgs" % sid,
-            "%s_onyx.mid" % sid}
+    skip = {"out.vgs", "onyx_songs.dta", "%s.vgs" % sid, "%s_onyx.mid" % sid}
     ok = bad = 0
     for dirpath, _, files in os.walk(stage):
         for f in sorted(files):
-            if f in skip or f.endswith((".ogg", ".m2v")):
+            # The .json files are notes to the build about what it made and from
+            # what, so that a rebuild can tell what still stands: layout.json,
+            # and one beside each of the clip and the encoded mix.
+            if f in skip or f.endswith((".ogg", ".m2v", ".json")):
                 continue
             src = os.path.join(dirpath, f)
             rel = os.path.relpath(src, stage)

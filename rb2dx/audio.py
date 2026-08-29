@@ -2,7 +2,7 @@
 
 For each song this writes into that song's stage folder:
   <id>.ogg       multichannel mix, 22050 Hz, 3s of leading silence
-  prev_<id>.ogg  stereo preview excerpt
+  prev_<id>.ogg  stereo preview excerpt, cut from that mix
   layout.json    channel layout + metadata, consumed by the songs.dta generator
 
 The 3 seconds of silence exist because PS2 Rock Band starts reading the chart
@@ -14,6 +14,7 @@ the folder and the parts its chart plays.
 """
 
 import json
+import math
 import os
 import re
 
@@ -27,11 +28,24 @@ RATE = 22050
 # mix is encoded for the console: see charts.measure_pad.
 LEAD_SILENCE_MS = 3000
 PREVIEW_SECS = 30
+# Where the preview starts when song.ini has no preview_start_time, or has one it
+# does not know (a -1, which is most of what the charting tools write): half a
+# minute in, which is past most intros.
+DEFAULT_PREVIEW_MS = 30000
+# The clip fades in, so cutting into the middle of a song does not click, and out
+# at the end so it can loop.
+PREVIEW_FADE_IN = 0.05
+PREVIEW_FADE_OUT = 2
+# How close to full scale the finished clip may come. The song list plays it as
+# it is, with none of the levels the console applies to a song, so anything that
+# reaches full scale here is louder than the song it belongs to and clips on top.
+PREVIEW_PEAK_DB = -1.0
 DRUM_ROLES = ("kick", "snare", "kit")
 
 # What ffmpeg is asked for when measuring a mixdown: one figure for the whole
 # stream, no per-channel breakdown to read past.
 MEASURE = "measure_perchannel=none:measure_overall=RMS_level"
+PEAK_MEASURE = "measure_perchannel=none:measure_overall=Peak_level"
 # Mixing two channels into one cannot cost more than 3 dB, and four cannot cost
 # more than 6. Anything past that is a measurement gone wrong, not a mix.
 MAX_FOLD_DB = 6.0
@@ -155,6 +169,57 @@ def pan_expr(src_ch, want_ch):
     return "pan=stereo|c0=%s|c1=%s" % (left, right)
 
 
+def preview_start(meta, seconds):
+    """How far into the song the preview is cut from, in seconds.
+
+    song.ini carries the point in milliseconds. Charts made from Guitar Hero rips
+    and the like usually carry a -1 instead, meaning nobody chose one, and a few
+    carry nothing at all; those take the default. A point so late that the clip
+    would run off the end of the song is pulled back to fit.
+    """
+    raw = (meta.get("preview_start_time") or "").strip()
+    try:
+        ms = float(raw)
+    except ValueError:
+        ms = -1.0
+    if ms < 0:
+        ms = DEFAULT_PREVIEW_MS
+    start = ms / 1000.0
+    if seconds and start + PREVIEW_SECS > seconds:
+        start = max(0.0, seconds - PREVIEW_SECS)
+    return start
+
+
+def console_mix(pans, vols):
+    """A pan filter folding the disc's channels the way the console does.
+
+    Each channel is placed by its pan and set by its level, and what comes out is
+    what the song sounds like when it plays. A channel of its own on each side
+    arrives whole; one in the middle is held back 3 dB, as panning to the middle
+    does, so it is no louder for being in both.
+    """
+    left, right = [], []
+    for i, (pan, vol) in enumerate(zip(pans, vols)):
+        gain = 10 ** (vol / 20.0)
+        for side, weight in ((left, math.cos((pan + 1) * math.pi / 4)),
+                             (right, math.sin((pan + 1) * math.pi / 4))):
+            if gain * weight > 1e-4:
+                side.append("%.4f*c%d" % (gain * weight, i))
+    return "pan=stereo|c0=%s|c1=%s" % ("+".join(left) or "0*c0",
+                                       "+".join(right) or "0*c0")
+
+
+def peak_of(settings, path, filters, start, seconds):
+    """The loudest sample in one stretch of a file once filtered, in dBFS."""
+    r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-nostats",
+                  "-loglevel", "info", "-ss", "%.3f" % start, "-t",
+                  "%.3f" % seconds, "-i", path, "-af",
+                  "%s,astats=%s" % (filters, PEAK_MEASURE),
+                  "-f", "null", os.devnull], capture_output=True, text=True)
+    found = re.findall(r"Peak level dB:\s*(-?[\d.]+)", r.stderr or "")
+    return float(found[-1]) if found else None
+
+
 def outputs(settings, sid):
     d = os.path.join(settings.stage, sid)
     return (os.path.join(d, "%s.ogg" % sid),
@@ -254,28 +319,6 @@ def stage(settings, sid, source_dir, log=None):
         return False, "mixing the stems failed: %s" % (
             (r.stderr or r.stdout).strip()[:160])
 
-    # Stereo preview excerpt: full mix, starting at the chart's preview point.
-    prev_start = int(meta.get("preview_start_time", "0") or 0) / 1000.0
-    all_stems = [f for k, f in present.items() if k != "crowd"]
-    p_inputs, p_filters, p_labels = [], [], []
-    for i, f in enumerate(all_stems):
-        ch, _ = probe_audio(settings, f)
-        p_inputs += ["-ss", "%.3f" % prev_start, "-t", str(PREVIEW_SECS), "-i", f]
-        p_filters.append("[%d:a]aresample=%d,%s[p%d]" % (i, RATE, pan_expr(ch, 2), i))
-        p_labels.append("[p%d]" % i)
-    p_filters.append("%samix=inputs=%d:normalize=0,afade=t=out:st=%d:d=2[pout]"
-                     % ("".join(p_labels), len(p_labels), PREVIEW_SECS - 2))
-    if log:
-        log("cutting the %d s preview" % PREVIEW_SECS)
-    r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel",
-                        "error", "-y"] + p_inputs +
-                       ["-filter_complex", ";".join(p_filters), "-map", "[pout]",
-                        "-c:a", "libvorbis", "-q:a", "5", prev_out],
-                       capture_output=True, text=True)
-    if r.returncode != 0 or not os.path.exists(prev_out):
-        return False, "building the preview failed: %s" % (
-            (r.stderr or r.stdout).strip()[:160])
-
     losses = {}
     for p in plan:
         if not p["files"]:
@@ -309,6 +352,36 @@ def stage(settings, sid, source_dir, log=None):
             cores.append(1 if p["role"] == "guitar" else -1)
     if drum_ch:
         tracks["drum"] = drum_ch
+
+    # The preview is cut from the mix that was just written, not from the stems,
+    # and folded the way the console folds it. Summing the stems instead left the
+    # song list playing a clip 13 dB above the song and clipping on top of that.
+    prev_start = preview_start(meta, longest)
+    fold = console_mix(pans, vols)
+    peak = peak_of(settings, main_out, fold, prev_start + LEAD_SILENCE_MS / 1000.0,
+                   PREVIEW_SECS)
+    # A song whose own mix reaches full scale would have the console clip it. The
+    # clip cannot follow it there, so it comes down far enough to stay clean.
+    trim = min(0.0, PREVIEW_PEAK_DB - peak) if peak is not None else 0.0
+    if log:
+        log("cutting the %d s preview from %d:%02d in%s"
+            % (PREVIEW_SECS, int(prev_start) // 60, int(prev_start) % 60,
+               "" if trim > -0.05 else ", %.1f dB down to keep it clear of full "
+               "scale" % -trim))
+    chain = [fold]
+    if trim < -0.05:
+        chain.append("volume=%.2fdB" % trim)
+    chain.append("afade=t=in:st=0:d=%s" % PREVIEW_FADE_IN)
+    chain.append("afade=t=out:st=%d:d=%d"
+                 % (PREVIEW_SECS - PREVIEW_FADE_OUT, PREVIEW_FADE_OUT))
+    r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error",
+                  "-y", "-ss", "%.3f" % (prev_start + LEAD_SILENCE_MS / 1000.0),
+                  "-t", str(PREVIEW_SECS), "-i", main_out,
+                  "-af", ",".join(chain), "-c:a", "libvorbis", "-q:a", "5",
+                  prev_out], capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(prev_out):
+        return False, "building the preview failed: %s" % (
+            (r.stderr or r.stdout).strip()[:160])
 
     info = {
         "id": sid,

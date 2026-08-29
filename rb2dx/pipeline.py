@@ -36,7 +36,7 @@ ALL_STAGES = frozenset(name for name, _ in SONG_STAGES)
 # The parts of a song's stamp that only the video stage reads. Change one of
 # these - the background, the bitrate behind it, or how the clip is encoded - and
 # the song's audio, chart and art are still good, so only its video is made again.
-VIDEO_KEYS = ("video_kbps", "background", "video", "picture")
+VIDEO_KEYS = ("video_kbps", "background", "video", "picture", "screen")
 
 # And the parts only the mix depends on. A song's audio is muxed into its .pss,
 # so the video stage has to run as well or the disc would ship a mix one width
@@ -54,6 +54,18 @@ AUDIO_STAGES = frozenset(["audio", "vgs", "video"])
 # slowest thing here, half a minute a song, which is why it is worth telling apart.
 CHART_KEYS = ("chart",)
 CHART_STAGES = frozenset(["charts"])
+
+# And the part only the preview clip depends on. The clip ships as a file of its
+# own rather than inside the .pss, so the video is left alone: the mix is written
+# again on the way to it, byte for byte what was there, and the .pss keeps the
+# copy it holds.
+PREVIEW_KEYS = ("preview",)
+PREVIEW_STAGES = frozenset(["audio", "vgs"])
+
+# Bumped when the preview clip changes, to re-cut it for songs staged by an older
+# version. 2: the clip is cut from the finished mix and folded the way the console
+# folds it, rather than summed from the stems, which had it 13 dB over the song.
+PREVIEW = 2
 
 # Bumped when the chart changes, to put songs staged by an older version back
 # through the converter on their own. 2: the markers that force a note to be
@@ -142,13 +154,15 @@ class Pipeline:
         sig = {"source": song.path, "stems": stems,
                "video_kbps": self.settings.encode_kbps,
                "picture": video.SHAPE, "mix": MIX, "chart": CHART,
-               "format": FORMAT}
+               "preview": PREVIEW, "format": FORMAT}
         # Only songs affected carry the keys below, so nothing already built is
         # disturbed by one of them appearing.
         if self.settings.wide_mix:
             sig["wide"] = True
         if self.settings.black_background:
             sig["background"] = "black"
+        elif self.settings.widescreen:
+            sig["screen"] = "16:9"
         # A folder's own video plays behind that song, so swapping it has to
         # rebuild the song the way a changed stem does. Black ignores it, and
         # then it has no bearing on what gets built.
@@ -174,7 +188,9 @@ class Pipeline:
             return frozenset()
         changed = {k for k in set(built) | set(want)
                    if built.get(k) != want.get(k)}
-        if not changed <= set(VIDEO_KEYS) | set(AUDIO_KEYS) | set(CHART_KEYS):
+        known = (set(VIDEO_KEYS) | set(AUDIO_KEYS) | set(CHART_KEYS)
+                 | set(PREVIEW_KEYS))
+        if not changed <= known:
             return ALL_STAGES
         stages = set()
         if changed & set(VIDEO_KEYS):
@@ -183,6 +199,8 @@ class Pipeline:
             stages |= AUDIO_STAGES
         if changed & set(CHART_KEYS):
             stages |= CHART_STAGES
+        if changed & set(PREVIEW_KEYS):
+            stages |= PREVIEW_STAGES
         return frozenset(stages)
 
     def _write_stamp(self, song):
@@ -227,6 +245,8 @@ class Pipeline:
             self.log("%s: mixing its audio again" % song.label)
         elif stale == CHART_STAGES:
             self.log("%s: converting its chart again" % song.label)
+        elif stale == PREVIEW_STAGES:
+            self.log("%s: cutting its preview clip again" % song.label)
         elif stale:
             self.log("%s: encoding %s again"
                      % (song.label, " and ".join(sorted(stale))))

@@ -137,7 +137,11 @@ def build_entry(info, onyx_dta):
         else:
             track_lines.append("     (%s\n      (%s))" % (part, fmt_ints(idxs)))
 
-    pv_start, pv_end = info["preview_ms"]
+    # Where the previewed stretch sits in the song's own audio. The chart stage
+    # may have put more silence in front of that audio than the mix was written
+    # with, so the window moves with it and keeps pointing at the same music.
+    pv_start, pv_end = [ms + info.get("extra_lead_ms", 0)
+                        for ms in info["preview_ms"]]
 
     L = []
     L.append("(%s" % sid)

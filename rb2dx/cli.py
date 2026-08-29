@@ -52,6 +52,9 @@ def cmd_setup(args):
     if args.background:
         s.background = args.background
         changed = True
+    if args.screen:
+        s.screen = args.screen
+        changed = True
     if args.wide_mix:
         s.wide_mix = args.wide_mix == "yes"
         changed = True
@@ -120,7 +123,7 @@ def cmd_setup(args):
                                      else "venue videos"))
         print("  videos       %s%s" % (s.venue_dir or "-",
                                        "" if s._venue_dir else " (bundled)"))
-        print("  video        %d kbps" % s.encode_kbps)
+        print("  video        %d kbps, drawn for %s" % (s.encode_kbps, s.screen))
         print("  vocal/backing%s" % (" stereo" if s.wide_mix else " mono"))
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
@@ -187,6 +190,8 @@ def cmd_build(args):
         s.video_kbps = args.video
     if args.background:
         s.background = args.background
+    if args.screen:
+        s.screen = args.screen
     if args.jobs:
         s.jobs = args.jobs
 
@@ -253,6 +258,9 @@ def main(argv=None):
     p.add_argument("--background", choices=settings_mod.BACKGROUNDS,
                    help="what plays behind the songs; black needs no videos "
                         "and fits about two and a half times as many songs")
+    p.add_argument("--screen", choices=settings_mod.SCREENS,
+                   help="which shape the videos are drawn for; 16:9 squeezes "
+                        "them to suit the game's own widescreen setting")
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--wide-mix", choices=("yes", "no"),
                    help="carry the vocal and the backing in stereo rather than "
@@ -285,6 +293,7 @@ def main(argv=None):
     p.add_argument("--limit", type=int, metavar="N",
                    help="only the first N songs, for a quick test")
     p.add_argument("--background", choices=settings_mod.BACKGROUNDS)
+    p.add_argument("--screen", choices=settings_mod.SCREENS)
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--no-iso", action="store_true")

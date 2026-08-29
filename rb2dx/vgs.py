@@ -183,6 +183,42 @@ def write_vgs(settings, src, dst, rate=RATE, seconds=None, lead_ms=0):
     return nch, nblocks, nblocks * BLOCK_SAMPLES / float(rate)
 
 
+def digest_of(settings, path):
+    """A digest of what a file sounds like, not of the file.
+
+    The mix is written again whenever a song is staged again, and an .ogg carries
+    a stream number picked at random each time, so the same mix is never the same
+    file twice. The samples inside it are, which is what matters here.
+    """
+    r = proc.run([settings.tool("ffmpeg"), "-v", "error", "-i", path,
+                  "-map", "0:a", "-f", "md5", "-"], capture_output=True,
+                 text=True)
+    got = (r.stdout or "").strip()
+    return got[4:] if got.startswith("MD5=") else ""
+
+
+def read_json(path):
+    try:
+        with open(path, encoding="utf-8") as fp:
+            return json.load(fp)
+    except (OSError, ValueError):
+        return None
+
+
+def channels_of(path):
+    """(channels, seconds) of an encoded file, read back from its header."""
+    with open(path, "rb") as fp:
+        head = fp.read(HEADER)
+    nch, nblocks = 0, 0
+    # Fifteen slots, and the first empty one ends the list.
+    for c in range(15):
+        rate, blocks = struct.unpack_from("<II", head, 8 + c * 8)
+        if not rate:
+            break
+        nch, nblocks = nch + 1, blocks
+    return nch, nblocks * BLOCK_SAMPLES / float(RATE)
+
+
 def outputs(settings, sid):
     d = os.path.join(settings.stage, sid)
     return (os.path.join(d, "%s.vgs" % sid),
@@ -215,11 +251,26 @@ def encode(settings, sid, log=None):
                            % os.path.basename(path))
     main_vgs, prev_vgs = outputs(settings, sid)
 
-    if log:
-        log("encoding the %d channel mix%s"
-            % (want, "" if not lead_ms else
-               " with %.3f s more silence in front of it" % (lead_ms / 1000.0)))
-    nch, _, secs = write_vgs(settings, main_ogg, main_vgs, lead_ms=lead_ms)
+    # Encoding the mix is the long part of this stage, a few million samples of
+    # ADPCM, so it is skipped when the mix it would read is the one already
+    # encoded - which is what a re-cut preview clip leaves behind.
+    made_from = {"ogg": digest_of(settings, main_ogg), "lead_ms": lead_ms,
+                 "rate": RATE}
+    stamp = main_vgs + ".json"
+    if made_from["ogg"] and os.path.exists(main_vgs) \
+            and read_json(stamp) == made_from:
+        nch, secs = channels_of(main_vgs)
+        if log:
+            log("the %d channel mix is already encoded" % nch)
+    else:
+        if log:
+            log("encoding the %d channel mix%s"
+                % (want, "" if not lead_ms else
+                   " with %.3f s more silence in front of it"
+                   % (lead_ms / 1000.0)))
+        nch, _, secs = write_vgs(settings, main_ogg, main_vgs, lead_ms=lead_ms)
+        with open(stamp, "w", encoding="utf-8") as fp:
+            json.dump(made_from, fp)
     if nch != want:
         return False, ("main mix encoded %d channels but layout.json says %d"
                        % (nch, want))

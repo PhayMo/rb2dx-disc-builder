@@ -25,6 +25,11 @@ BACKGROUND_PRESETS = [
     ("Black - fits about two and a half times as many songs", "black"),
 ]
 
+SCREEN_PRESETS = [
+    ("4:3, as the console plays it", "4:3"),
+    ("16:9, for the game's widescreen setting", "16:9"),
+]
+
 
 class SetupTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -89,6 +94,15 @@ class SetupTab(ttk.Frame):
             values=[name for name, _ in VIDEO_PRESETS]),
             hint="Lower quality fits more songs, at some cost to how the "
                  "background looks.")
+        self.screen_var = tk.StringVar()
+        self.screen_box = disc.add_row("Picture", ttk.Combobox(
+            disc, textvariable=self.screen_var, state="readonly",
+            values=[name for name, _ in SCREEN_PRESETS]),
+            hint="Pick 16:9 only if you play with the game's own Widescreen "
+                 "setting on, as emulator users usually do: the video is "
+                 "squeezed so that the stretch the game applies comes out "
+                 "right, and a widescreen clip keeps the sides 4:3 has to crop. "
+                 "On a 4:3 screen the same disc looks too narrow.")
         self.wide_var = tk.BooleanVar(value=False)
         disc.add_row("Stereo mix", ttk.Checkbutton(
             disc, text="Keep the vocal and the backing in stereo",
@@ -164,6 +178,7 @@ class SetupTab(ttk.Frame):
         self.disc_var.set(_closest(DISC_PRESETS, s.ceiling_bytes))
         self.bg_var.set(_closest(BACKGROUND_PRESETS, s.background))
         self.video_var.set(_closest(VIDEO_PRESETS, s.video_kbps))
+        self.screen_var.set(_closest(SCREEN_PRESETS, s.screen))
         self.show_background(s.black_background)
         self._loading = False
         self.refresh_tools()
@@ -204,13 +219,17 @@ class SetupTab(ttk.Frame):
         for name, value in VIDEO_PRESETS:
             if name == self.video_var.get():
                 s.video_kbps = value
+        for name, value in SCREEN_PRESETS:
+            if name == self.screen_var.get():
+                s.screen = value
         self.show_background(s.black_background)
         s.save()
         self.app.settings_changed()
 
     def show_background(self, black):
         """Nothing about the videos matters when the background is black."""
-        self.video_box.state(["disabled"] if black else ["!disabled", "readonly"])
+        for box in (self.video_box, self.screen_box):
+            box.state(["disabled"] if black else ["!disabled", "readonly"])
         self.venue.enable(not black)
 
     # ---- tools -------------------------------------------------------------

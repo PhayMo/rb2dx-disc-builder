@@ -41,6 +41,11 @@ from .settings import VIDEO_EXT, videos_in
 # which the console treats the image as a CD rather than a DVD. The rate itself
 # comes from the settings, which default to 1500.
 WIDTH, HEIGHT = 400, 304
+# The console plays that frame across the whole screen, so with the game set to
+# 16:9 it comes out a third wider than it was drawn. A disc meant for that setting
+# has the picture squeezed to suit: the clip is framed 16:9 at this width and then
+# pressed into the 400 the stream carries, which the game's own stretch undoes.
+WIDE_WIDTH = 540
 FPS = "30000/1001"
 # Retail sequence headers declare a 40-unit VBV buffer (units are 16384 bits).
 # ffmpeg's own default is far larger, and the PS2's video decoder has only a
@@ -222,8 +227,17 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     kbps = settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
+        # Fill the frame the disc is meant for, cropping whatever will not fit,
+        # and for a widescreen disc squeeze that frame into the stream's 400.
+        frame = WIDE_WIDTH if settings.widescreen else WIDTH
         vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
-              % (WIDTH, HEIGHT, WIDTH, HEIGHT, FPS))
+              % (frame, HEIGHT, frame, HEIGHT, FPS))
+        if frame != WIDTH:
+            # setsar keeps the stream's header saying square pixels, as retail's
+            # does. Left to itself ffmpeg would write 16:9 there, and what the
+            # console makes of a header it never sees in its own videos is not
+            # worth finding out: the squeeze is in the picture, not in a flag.
+            vf += ",scale=%d:%d,setsar=1" % (WIDTH, HEIGHT)
         if steady:
             vf += "," + SOFTEN
         vf += ",tpad=start_duration=%s:start_mode=add:color=black" % (LEAD_IN
@@ -345,7 +359,8 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     # for it when the clip that is already staged was made from the same things.
     want = {"clip": os.path.basename(venue), "kbps": settings.encode_kbps,
             "seconds": round(vid_secs, 2), "start": round(start, 3),
-            "delay": round(delay, 3), "shape": SHAPE}
+            "delay": round(delay, 3), "shape": SHAPE,
+            "screen": settings.screen}
     note = ""
     if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
         if log:
