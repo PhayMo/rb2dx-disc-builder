@@ -17,6 +17,7 @@ DISC_PRESETS = [
 VIDEO_PRESETS = [
     ("Good, 1500 kbps - about 11 MB a minute", 1500),
     ("Better, 2500 kbps", 2500),
+    ("Best, 3000 kbps - about 22 MB a minute", 3000),
     ("Smaller, 900 kbps", 900),
 ]
 
@@ -93,7 +94,8 @@ class SetupTab(ttk.Frame):
             disc, textvariable=self.video_var, state="readonly",
             values=[name for name, _ in VIDEO_PRESETS]),
             hint="Lower quality fits more songs, at some cost to how the "
-                 "background looks.")
+                 "background looks. The game's own videos are 2000, so the top "
+                 "setting asks more of the console than anything retail did.")
         self.screen_var = tk.StringVar()
         self.screen_box = disc.add_row("Picture", ttk.Combobox(
             disc, textvariable=self.screen_var, state="readonly",
