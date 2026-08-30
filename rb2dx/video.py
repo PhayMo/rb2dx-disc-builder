@@ -50,6 +50,28 @@ WIDTH, HEIGHT = 400, 304
 WIDE_WIDTH = 540
 FLAT_WIDTH = 406
 FPS = "30000/1001"
+# How a clip's own black is found, for content_box. The limit is how dark a pixel
+# has to be to count as black, out of 255; the spots are where through the clip it
+# is read, keeping away from the opening, which is often a fade from black.
+TRIM_LIMIT = 24
+TRIM_SPOTS = (0.1, 0.35, 0.6, 0.85)
+TRIM_SECS = 2.0
+# Two per cent of a side is the scaler rounding rather than a border, and cutting
+# it would take more picture than it saves black.
+TRIM_LEAST = 0.98
+# A sample that is mostly black finds a border where the picture is, so a box
+# smaller than half the frame is not believed.
+TRIM_MOST = 0.5
+# A picture this close to the frame's shape fills it instead of keeping black.
+# Neither shape is exact - the frame is 406 or 540 by 304, and a video's own shape
+# is often a little off the one it is sold as - and a few per cent off the sides is
+# less to lose than a bar across the picture is to look at.
+FILL_SLACK = 0.08
+# Bumped when the rules below for framing a song's own video change, so a song
+# staged under the old ones has that clip encoded again and nothing else touched.
+# 1: kept whole rather than cropped to fill. 2: black the clip carries cut off
+# first, and a shape near enough the frame's filling it.
+FIT = 2
 # Retail sequence headers declare a 40-unit VBV buffer (units are 16384 bits).
 # ffmpeg's own default is far larger, and the PS2's video decoder has only a
 # small buffer to fill, so state retail's figure explicitly.
@@ -79,6 +101,11 @@ TAIL_SLACK = 2.0
 
 SAMPLES_PER_BLOCK = 28
 ADPCM_BLOCK = 16
+
+# Reading a clip's own black costs a second or two, and the same clip is asked
+# about by the still on the Songs page, the window that plays it and the build, so
+# the answer is kept against the file it was read from.
+_trims = {}
 
 # Bumped when the encode changes, so a song staged by an older version has its
 # video made again while its chart, art and audio are left alone. 2: retail's
@@ -238,7 +265,91 @@ def still_share(settings, src, start=0.0):
     return len([v for v in seen if float(v) == 0.0]) / float(len(seen))
 
 
-def shape_filter(settings, whole=False):
+def content_box(settings, src):
+    """Where the picture sits inside a clip that brought black of its own.
+
+    (width, height, x, y) to cut away first, or None if the clip is picture right
+    out to its edges. Plenty of videos are stored in a frame wider than what was
+    shot: a scope film letterboxed inside a 16:9 file, a 4:3 video pillarboxed to
+    fill one. Fitting such a clip whole keeps that black and puts the frame's own
+    around it, which is how a 16:9 disc ends up with bars it has no reason to have.
+
+    Read at several points through the clip, because a fade, a night shot or a
+    title card is black where the picture is not, and the box kept is the largest
+    any sample showed. That errs towards keeping picture rather than cutting it.
+    """
+    if not src or not os.path.exists(src):
+        return None
+    try:
+        st = os.stat(src)
+        key = (os.path.abspath(src), st.st_size, int(st.st_mtime))
+    except OSError:
+        key = None
+    if key in _trims:
+        return _trims[key]
+
+    got = probe_video(settings, src)
+    if len(got) < 2 or not got[0].isdigit() or not got[1].isdigit():
+        return None
+    w, h = int(got[0]), int(got[1])
+    length = clip_seconds(settings, src)
+    spots = [length * f for f in TRIM_SPOTS] if length > TRIM_SECS else [0.0]
+
+    left, top, right, bottom = w, h, 0, 0
+    for at in spots:
+        r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel",
+                      "info", "-ss", "%.3f" % at, "-t", "%.1f" % TRIM_SECS,
+                      "-i", src, "-vf",
+                      "cropdetect=limit=%d:round=2:reset=1" % TRIM_LIMIT,
+                      "-f", "null", os.devnull],
+                     capture_output=True, text=True)
+        found = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)",
+                           (r.stderr or "") + (r.stdout or ""))
+        for cw, ch, cx, cy in found:
+            cw, ch, cx, cy = int(cw), int(ch), int(cx), int(cy)
+            if cw <= 0 or ch <= 0:
+                continue
+            left, top = min(left, cx), min(top, cy)
+            right, bottom = max(right, cx + cw), max(bottom, cy + ch)
+
+    box = None
+    keep_w, keep_h = right - left, bottom - top
+    believable = keep_w >= w * TRIM_MOST and keep_h >= h * TRIM_MOST
+    worth_it = keep_w < w * TRIM_LEAST or keep_h < h * TRIM_LEAST
+    if keep_w > 0 and keep_h > 0 and believable and worth_it:
+        # Even numbers throughout: the stream is 4:2:0, and an odd offset costs a
+        # colour plane half a pixel of accuracy for nothing.
+        left, top = left - left % 2, top - top % 2
+        box = (keep_w - keep_w % 2, keep_h - keep_h % 2, left, top)
+    if key:
+        _trims[key] = box
+    return box
+
+
+def framing(settings, src):
+    """How a song's own video is put in the frame: (keep it whole, black to cut).
+
+    Whole means fitted inside the frame with black filling the rest, which is what
+    a picture of a different shape needs. A picture near enough the frame's own
+    shape fills it instead, since fitting it would trade a few per cent of the
+    sides - which nobody sees go - for a line or two of black across the top and
+    bottom, which everybody sees.
+    """
+    trim = content_box(settings, src)
+    got = probe_video(settings, src)
+    if len(got) < 2 or not got[0].isdigit() or not got[1].isdigit():
+        return True, trim
+    if trim:
+        shape = trim[0] / float(trim[1] or 1)
+    else:
+        shape = int(got[0]) / float(int(got[1]) or 1)
+    across = WIDE_WIDTH if settings.widescreen else FLAT_WIDTH
+    frame = across / float(HEIGHT)
+    lost = 1.0 - min(shape, frame) / max(shape, frame)
+    return lost > FILL_SLACK, trim
+
+
+def shape_filter(settings, whole=False, trim=None):
     """Filters that turn any clip into the frame the disc carries.
 
     Fills that frame, cropping whatever will not fit, and for a widescreen disc
@@ -249,8 +360,12 @@ def shape_filter(settings, whole=False):
     filling the screen, but a song's own video was chosen for what is in it: cropping
     a widescreen music video into a 4:3 frame takes a quarter of its width away, which
     on a title card means the words run off both sides.
+
+    `trim` is the clip's own black, from content_box, taken off before any of that so
+    it is not carried into the frame.
     """
     frame = WIDE_WIDTH if settings.widescreen else WIDTH
+    first = "crop=%d:%d:%d:%d," % trim if trim else ""
     if whole:
         # Fitted in a frame of the shape the screen shows rather than of the shape
         # the stream is stored in. The 400 across is drawn over the whole of a 4:3
@@ -259,12 +374,12 @@ def shape_filter(settings, whole=False):
         # stored shape instead would leave a 4:3 clip a couple of lines of black
         # it has no need of.
         frame = WIDE_WIDTH if settings.widescreen else FLAT_WIDTH
-        vf = ("scale=%d:%d:force_original_aspect_ratio=decrease:"
+        vf = ("%sscale=%d:%d:force_original_aspect_ratio=decrease:"
               "force_divisible_by=2,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,"
-              "fps=%s" % (frame, HEIGHT, frame, HEIGHT, FPS))
+              "fps=%s" % (first, frame, HEIGHT, frame, HEIGHT, FPS))
     else:
-        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
-              % (frame, HEIGHT, frame, HEIGHT, FPS))
+        vf = ("%sscale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,"
+              "fps=%s" % (first, frame, HEIGHT, frame, HEIGHT, FPS))
     if frame != WIDTH:
         # setsar keeps the stream's header saying square pixels, as retail's does.
         # Left to itself ffmpeg would write 16:9 there, and what the console makes
@@ -291,7 +406,7 @@ def extra_lead(settings, sid):
 
 
 def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
-                 steady=False, whole=False):
+                 steady=False, whole=False, trim=None):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
     start moves the clip that far along and delay puts that much extra black in
@@ -301,12 +416,13 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     black and the bitrate can be a fraction of a real clip's. steady is for a
     clip that spends its time holding one picture, and trades a little of its
     detail for keeping that picture still. whole keeps all of the picture rather
-    than filling the frame with it; see shape_filter.
+    than filling the frame with it, and trim is black the clip came with; see
+    shape_filter for both.
     """
     kbps = settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
-        vf = shape_filter(settings, whole)
+        vf = shape_filter(settings, whole, trim)
         if start:
             # Moved after the clip is already looping, rather than by seeking the
             # file: a seek is applied again on every pass, which throws the front
@@ -342,9 +458,13 @@ def still(settings, src, dst, at=0.0, wide=0, whole=True):
 
     `wide` asks for it smaller than the disc's own frame, for a window with less
     room than that to give it. Only a song's own video is ever looked at this way,
-    so all of the picture is kept by default, as the disc keeps it.
+    so all of the picture is kept by default, as the disc keeps it, and any black
+    the clip came with is cut off first, as the disc cuts it.
     """
-    vf = shape_filter(settings, whole)
+    trim = None
+    if whole:
+        whole, trim = framing(settings, src)
+    vf = shape_filter(settings, whole, trim)
     if wide and wide < WIDTH:
         vf += ",scale=%d:%d" % (wide, round(wide * HEIGHT / float(WIDTH) / 2) * 2)
     r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error",
@@ -382,8 +502,11 @@ def watch(settings, clip, dst, clip_at, stems=(), song_at=0.0,
         cmd += ["-i", path]
 
     # The clip is moved after it is looping, for the reason encode_video gives.
+    trim = None
+    if whole:
+        whole, trim = framing(settings, clip)
     chain = ["[0:v]%s,trim=start=%.3f,setpts=PTS-STARTPTS[v]"
-             % (shape_filter(settings, whole), clip_at)]
+             % (shape_filter(settings, whole, trim), clip_at)]
     ears = []
     if heard:
         chain.append("[0:a]atrim=start=%.3f,asetpts=PTS-STARTPTS,"
@@ -423,16 +546,21 @@ def has_sound(settings, path):
     return "audio" in (out or "")
 
 
-def frame_note(settings, src):
+def frame_note(settings, src, trim=None):
     """How a clip sits in the disc's frame, for the log, or "" if it fills it.
 
     Worth a line because black at the edges is the sort of thing that gets reported
     as a fault, and the alternative - losing the sides of the picture - is worse.
+    What is measured is the picture after its own black is off, since that is what
+    is being fitted.
     """
     got = probe_video(settings, src)
     if len(got) < 2 or not got[0].isdigit() or not got[1].isdigit():
         return ""
-    shape = int(got[0]) / float(int(got[1]) or 1)
+    if trim:
+        shape = trim[0] / float(trim[1] or 1)
+    else:
+        shape = int(got[0]) / float(int(got[1]) or 1)
     frame = (16 / 9.0) if settings.widescreen else (4 / 3.0)
     if abs(shape - frame) < 0.03:
         return ""
@@ -522,6 +650,10 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     else:
         venue, own = choose_video(sid, venue_dir, source_dir)
     shift, told_by = shift_for(settings, source_dir) if own else (0.0, "")
+    # Only a song's own video is ever kept whole, so only that one is worth reading:
+    # a venue clip fills the frame, and black it carries is cropped away with
+    # everything else that falls outside.
+    whole, trim = framing(settings, venue) if own else (False, None)
     start, delay = offsets(settings, venue, shift, vid_secs)
     waited = extra_lead(settings, sid)
     what = "black" if not venue else os.path.basename(venue)
@@ -537,10 +669,12 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
             moved = ", %.2fs of black first (%s %+.2fs)" % (delay, told_by, shift)
         if waited:
             moved += ", waiting %.2fs for the music" % waited
+        if trim:
+            moved += (", %dx%d of it picture and the black around that cut off"
+                      % (trim[0], trim[1]))
         if own:
-            shaped = frame_note(settings, venue)
-            if shaped:
-                moved += ", " + shaped
+            shaped = frame_note(settings, venue, trim) if whole else ""
+            moved += ", " + (shaped or "filling the %s frame" % settings.screen)
         log("%s: %s%s" % ("the song's own video" if own else "background", what,
                           moved))
 
@@ -556,7 +690,8 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     if own:
         # Named only where it applies, so a song behind a venue clip keeps the
         # stamp it already has and the clip it already has with it.
-        want["whole"] = True
+        want["whole"] = whole
+        want["trim"] = "%d:%d:%d:%d" % trim if trim else ""
     note = ""
     if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
         if log:
@@ -570,7 +705,7 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
             if log:
                 log("video:%s" % note)
         r = encode_video(settings, venue, m2v, vid_secs, start, delay + waited,
-                         steady, whole=own)
+                         steady, whole=whole, trim=trim)
         if r.returncode != 0 or not os.path.exists(m2v) \
                 or os.path.getsize(m2v) == 0:
             return False, "could not encode the background video: %s" % (

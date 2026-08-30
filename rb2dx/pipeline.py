@@ -180,9 +180,12 @@ class Pipeline:
             shift = video.shift_for(self.settings, song.path)[0]
             if shift:
                 sig["nudge"] = round(shift, 3)
-            # All of such a video is now kept in frame where it used to be cropped
-            # to fill it, so one staged before this has its clip encoded again.
-            sig["frame"] = "whole"
+            # How such a video is put in the frame, so a song staged under an older
+            # rule has that clip encoded again. What the rule decides for this clip
+            # is not worked out here: reading a video costs a second or two, and the
+            # only thing that can change the answer is the clip itself, which is
+            # already above.
+            sig["frame"] = video.FIT
         return sig
 
     def _stale(self, song):
