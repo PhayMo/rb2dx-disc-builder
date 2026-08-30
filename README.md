@@ -13,8 +13,8 @@ on real hardware.
 ## What you need
 
 - **Windows.** The chart converter runs Magma, the official Rock Band compiler.
-- **Your own copy of Rock Band 2 Deluxe for PS2**, unpacked - the folder holding
-  `SLUS_218.00` and `gen\MAIN_0.ARK`. No game files are included here.
+- **Your own copy of Rock Band 2 Deluxe (Custom Edition) for PS2**, unpacked - the folder holding
+  `SLUS_218.00` and `gen\MAIN_0.ARK`.
 - **Songs in Clone Hero layout**: `notes.mid` or `notes.chart`, `song.ini`, the
   audio and `album.png`. Separate stems are ideal, since the game can then mute
   each part as it is missed, but one mixed `song.ogg` works too, as do `.wav`,
