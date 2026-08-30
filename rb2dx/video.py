@@ -45,7 +45,10 @@ WIDTH, HEIGHT = 400, 304
 # 16:9 it comes out a third wider than it was drawn. A disc meant for that setting
 # has the picture squeezed to suit: the clip is framed 16:9 at this width and then
 # pressed into the 400 the stream carries, which the game's own stretch undoes.
+# The same is true, less obviously, of a 4:3 screen: 400 by 304 is not quite 4:3,
+# so the shape a picture has to be fitted inside is 406 at that height.
 WIDE_WIDTH = 540
+FLAT_WIDTH = 406
 FPS = "30000/1001"
 # Retail sequence headers declare a 40-unit VBV buffer (units are 16384 bits).
 # ffmpeg's own default is far larger, and the PS2's video decoder has only a
@@ -235,15 +238,33 @@ def still_share(settings, src, start=0.0):
     return len([v for v in seen if float(v) == 0.0]) / float(len(seen))
 
 
-def shape_filter(settings):
+def shape_filter(settings, whole=False):
     """Filters that turn any clip into the frame the disc carries.
 
     Fills that frame, cropping whatever will not fit, and for a widescreen disc
     squeezes the wider frame into the stream's 400 across.
+
+    `whole` keeps all of the picture instead, fitting it inside the frame and filling
+    what is left over with black. A background clip is wallpaper and is better off
+    filling the screen, but a song's own video was chosen for what is in it: cropping
+    a widescreen music video into a 4:3 frame takes a quarter of its width away, which
+    on a title card means the words run off both sides.
     """
     frame = WIDE_WIDTH if settings.widescreen else WIDTH
-    vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
-          % (frame, HEIGHT, frame, HEIGHT, FPS))
+    if whole:
+        # Fitted in a frame of the shape the screen shows rather than of the shape
+        # the stream is stored in. The 400 across is drawn over the whole of a 4:3
+        # screen, so what a picture has to fit inside is 406 at this height, and
+        # the squeeze back to 400 below is undone by the screen. Fitting in the
+        # stored shape instead would leave a 4:3 clip a couple of lines of black
+        # it has no need of.
+        frame = WIDE_WIDTH if settings.widescreen else FLAT_WIDTH
+        vf = ("scale=%d:%d:force_original_aspect_ratio=decrease:"
+              "force_divisible_by=2,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,"
+              "fps=%s" % (frame, HEIGHT, frame, HEIGHT, FPS))
+    else:
+        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
+              % (frame, HEIGHT, frame, HEIGHT, FPS))
     if frame != WIDTH:
         # setsar keeps the stream's header saying square pixels, as retail's does.
         # Left to itself ffmpeg would write 16:9 there, and what the console makes
@@ -270,7 +291,7 @@ def extra_lead(settings, sid):
 
 
 def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
-                 steady=False):
+                 steady=False, whole=False):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
     start moves the clip that far along and delay puts that much extra black in
@@ -279,12 +300,13 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     file: there is nothing to loop, scale or line up, so the whole stream is
     black and the bitrate can be a fraction of a real clip's. steady is for a
     clip that spends its time holding one picture, and trades a little of its
-    detail for keeping that picture still.
+    detail for keeping that picture still. whole keeps all of the picture rather
+    than filling the frame with it; see shape_filter.
     """
     kbps = settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
-        vf = shape_filter(settings)
+        vf = shape_filter(settings, whole)
         if start:
             # Moved after the clip is already looping, rather than by seeking the
             # file: a seek is applied again on every pass, which throws the front
@@ -315,13 +337,14 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     return proc.run(cmd, capture_output=True, text=True)
 
 
-def still(settings, src, dst, at=0.0, wide=0):
+def still(settings, src, dst, at=0.0, wide=0, whole=True):
     """One frame of a clip, framed as the disc will carry it, to look at.
 
     `wide` asks for it smaller than the disc's own frame, for a window with less
-    room than that to give it.
+    room than that to give it. Only a song's own video is ever looked at this way,
+    so all of the picture is kept by default, as the disc keeps it.
     """
-    vf = shape_filter(settings)
+    vf = shape_filter(settings, whole)
     if wide and wide < WIDTH:
         vf += ",scale=%d:%d" % (wide, round(wide * HEIGHT / float(WIDTH) / 2) * 2)
     r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error",
@@ -343,7 +366,7 @@ def black_still(settings, dst, wide=0):
 
 
 def watch(settings, clip, dst, clip_at, stems=(), song_at=0.0,
-          seconds=WATCH_SECS):
+          seconds=WATCH_SECS, whole=True):
     """A piece of what the disc will play, to see and hear before building it.
 
     The picture goes through the same filters the disc's own encode uses, so it is
@@ -360,7 +383,7 @@ def watch(settings, clip, dst, clip_at, stems=(), song_at=0.0,
 
     # The clip is moved after it is looping, for the reason encode_video gives.
     chain = ["[0:v]%s,trim=start=%.3f,setpts=PTS-STARTPTS[v]"
-             % (shape_filter(settings), clip_at)]
+             % (shape_filter(settings, whole), clip_at)]
     ears = []
     if heard:
         chain.append("[0:a]atrim=start=%.3f,asetpts=PTS-STARTPTS,"
@@ -398,6 +421,26 @@ def has_sound(settings, path):
          "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
         capture_output=True, text=True).stdout
     return "audio" in (out or "")
+
+
+def frame_note(settings, src):
+    """How a clip sits in the disc's frame, for the log, or "" if it fills it.
+
+    Worth a line because black at the edges is the sort of thing that gets reported
+    as a fault, and the alternative - losing the sides of the picture - is worse.
+    """
+    got = probe_video(settings, src)
+    if len(got) < 2 or not got[0].isdigit() or not got[1].isdigit():
+        return ""
+    shape = int(got[0]) / float(int(got[1]) or 1)
+    frame = (16 / 9.0) if settings.widescreen else (4 / 3.0)
+    if abs(shape - frame) < 0.03:
+        return ""
+    side = ("wider than the %s frame, so it keeps black above and below rather "
+            "than losing its sides")
+    tall = ("narrower than the %s frame, so it keeps black either side rather "
+            "than losing its top and bottom")
+    return (side if shape > frame else tall) % settings.screen
 
 
 def probe_video(settings, path):
@@ -494,6 +537,10 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
             moved = ", %.2fs of black first (%s %+.2fs)" % (delay, told_by, shift)
         if waited:
             moved += ", waiting %.2fs for the music" % waited
+        if own:
+            shaped = frame_note(settings, venue)
+            if shaped:
+                moved += ", " + shaped
         log("%s: %s%s" % ("the song's own video" if own else "background", what,
                           moved))
 
@@ -506,6 +553,10 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
             "seconds": round(vid_secs, 2), "start": round(start, 3),
             "delay": round(delay + waited, 3), "shape": SHAPE,
             "screen": settings.screen}
+    if own:
+        # Named only where it applies, so a song behind a venue clip keeps the
+        # stamp it already has and the clip it already has with it.
+        want["whole"] = True
     note = ""
     if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
         if log:
@@ -519,7 +570,7 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
             if log:
                 log("video:%s" % note)
         r = encode_video(settings, venue, m2v, vid_secs, start, delay + waited,
-                         steady)
+                         steady, whole=own)
         if r.returncode != 0 or not os.path.exists(m2v) \
                 or os.path.getsize(m2v) == 0:
             return False, "could not encode the background video: %s" % (
