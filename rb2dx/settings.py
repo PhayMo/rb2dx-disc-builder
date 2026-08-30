@@ -47,6 +47,11 @@ DEFAULTS = {
     # "16:9" squeezed to suit the game's own widescreen setting. See
     # video.WIDE_WIDTH; the wrong one of the two looks stretched or narrow.
     "screen": "4:3",
+    # What to do with a video a song folder brought when its shape is not the
+    # screen's: "whole" fits all of it in and fills the rest with black, "fill"
+    # fills the screen and crops what will not go. Only the song's own video is
+    # asked about - a venue clip is wallpaper and always fills the screen.
+    "song_video": "whole",
     "ceiling_bytes": RETAIL_ISO_BYTES,
     # Carry the vocal and the backing in two channels rather than one, keeping
     # the stereo that averaging them into one throws away. Costs two channels of
@@ -85,6 +90,8 @@ SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
 BACKGROUNDS = ("venues", "black")
 
 SCREENS = ("4:3", "16:9")
+
+SONG_VIDEO_FITS = ("whole", "fill")
 
 # A black background still has to be encoded, because the game reads a song's
 # audio out of a video stream and finds none without one, but black at this rate
@@ -171,6 +178,8 @@ class Settings:
         self.background = (merged["background"] if merged["background"]
                            in BACKGROUNDS else "venues")
         self.screen = merged["screen"] if merged["screen"] in SCREENS else "4:3"
+        self.song_video = (merged["song_video"]
+                           if merged["song_video"] in SONG_VIDEO_FITS else "whole")
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         # Named stereo_vocals in the first release that had it, before it took in
         # the backing as well.
@@ -212,6 +221,7 @@ class Settings:
                 "video_kbps": self.video_kbps,
                 "background": self.background,
                 "screen": self.screen,
+                "song_video": self.song_video,
                 "ceiling_bytes": self.ceiling_bytes,
                 "wide_mix": self.wide_mix,
                 "jobs": self.jobs,
@@ -254,6 +264,11 @@ class Settings:
     def widescreen(self):
         """Draw the videos for a game set to 16:9 rather than 4:3."""
         return self.screen == "16:9"
+
+    @property
+    def fill_song_video(self):
+        """Fill the screen with a song's own video, cropping what will not fit."""
+        return self.song_video == "fill"
 
     # ---- a song's own video ------------------------------------------------
 

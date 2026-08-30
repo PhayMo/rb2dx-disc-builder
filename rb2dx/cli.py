@@ -55,6 +55,9 @@ def cmd_setup(args):
     if args.screen:
         s.screen = args.screen
         changed = True
+    if args.song_video:
+        s.song_video = args.song_video
+        changed = True
     if args.wide_mix:
         s.wide_mix = args.wide_mix == "yes"
         changed = True
@@ -124,6 +127,10 @@ def cmd_setup(args):
         print("  videos       %s%s" % (s.venue_dir or "-",
                                        "" if s._venue_dir else " (bundled)"))
         print("  video        %d kbps, drawn for %s" % (s.encode_kbps, s.screen))
+        print("  song videos  %s" % ("cropped to fill the screen"
+                                     if s.fill_song_video
+                                     else "kept whole, black where they do not "
+                                          "reach"))
         print("  vocal/backing%s" % (" stereo" if s.wide_mix else " mono"))
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
@@ -192,6 +199,8 @@ def cmd_build(args):
         s.background = args.background
     if args.screen:
         s.screen = args.screen
+    if args.song_video:
+        s.song_video = args.song_video
     if args.jobs:
         s.jobs = args.jobs
 
@@ -310,6 +319,10 @@ def main(argv=None):
     p.add_argument("--screen", choices=settings_mod.SCREENS,
                    help="which shape the videos are drawn for; 16:9 squeezes "
                         "them to suit the game's own widescreen setting")
+    p.add_argument("--song-video", choices=settings_mod.SONG_VIDEO_FITS,
+                   help="a video a song folder brought, where its shape is not "
+                        "the screen's: keep the whole picture, or fill the "
+                        "screen and crop what will not fit")
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--wide-mix", choices=("yes", "no"),
                    help="carry the vocal and the backing in stereo rather than "
@@ -343,6 +356,7 @@ def main(argv=None):
                    help="only the first N songs, for a quick test")
     p.add_argument("--background", choices=settings_mod.BACKGROUNDS)
     p.add_argument("--screen", choices=settings_mod.SCREENS)
+    p.add_argument("--song-video", choices=settings_mod.SONG_VIDEO_FITS)
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--no-iso", action="store_true")

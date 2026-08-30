@@ -31,6 +31,11 @@ SCREEN_PRESETS = [
     ("16:9, for the game's widescreen setting", "16:9"),
 ]
 
+SONG_VIDEO_PRESETS = [
+    ("Keep all of it, with black where it does not reach", "whole"),
+    ("Fill the screen, cropping what will not fit", "fill"),
+]
+
 
 class SetupTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -105,6 +110,15 @@ class SetupTab(ttk.Frame):
                  "squeezed so that the stretch the game applies comes out "
                  "right, and a widescreen clip keeps the sides 4:3 has to crop. "
                  "On a 4:3 screen the same disc looks too narrow.")
+        self.fit_var = tk.StringVar()
+        self.fit_box = disc.add_row("A song's own video", ttk.Combobox(
+            disc, textvariable=self.fit_var, state="readonly",
+            values=[name for name, _ in SONG_VIDEO_PRESETS]),
+            hint="Only for a video a song folder brought with it - a venue clip "
+                 "always fills the screen. Black the video itself carries is cut "
+                 "off either way; this is for a picture that is genuinely a "
+                 "different shape from the screen, such as a film shot wider than "
+                 "any television.")
         self.wide_var = tk.BooleanVar(value=False)
         disc.add_row("Stereo mix", ttk.Checkbutton(
             disc, text="Keep the vocal and the backing in stereo",
@@ -126,6 +140,10 @@ class SetupTab(ttk.Frame):
         self.disc_var.trace_add("write", lambda *_: self.push())
         self.bg_var.trace_add("write", lambda *_: self.push())
         self.video_var.trace_add("write", lambda *_: self.push())
+        # Picture had no watcher of its own, so choosing it saved nothing until
+        # something else on the page was touched.
+        self.screen_var.trace_add("write", lambda *_: self.push())
+        self.fit_var.trace_add("write", lambda *_: self.push())
         self.wide_var.trace_add("write", lambda *_: self.push())
         self.jobs_var.trace_add("write", lambda *_: self.push())
         self.demos_var.trace_add("write", lambda *_: self.push())
@@ -181,6 +199,7 @@ class SetupTab(ttk.Frame):
         self.bg_var.set(_closest(BACKGROUND_PRESETS, s.background))
         self.video_var.set(_closest(VIDEO_PRESETS, s.video_kbps))
         self.screen_var.set(_closest(SCREEN_PRESETS, s.screen))
+        self.fit_var.set(_closest(SONG_VIDEO_PRESETS, s.song_video))
         self.show_background(s.black_background)
         self._loading = False
         self.refresh_tools()
@@ -224,13 +243,16 @@ class SetupTab(ttk.Frame):
         for name, value in SCREEN_PRESETS:
             if name == self.screen_var.get():
                 s.screen = value
+        for name, value in SONG_VIDEO_PRESETS:
+            if name == self.fit_var.get():
+                s.song_video = value
         self.show_background(s.black_background)
         s.save()
         self.app.settings_changed()
 
     def show_background(self, black):
         """Nothing about the videos matters when the background is black."""
-        for box in (self.video_box, self.screen_box):
+        for box in (self.video_box, self.screen_box, self.fit_box):
             box.state(["disabled"] if black else ["!disabled", "readonly"])
         self.venue.enable(not black)
 

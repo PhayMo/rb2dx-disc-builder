@@ -186,6 +186,8 @@ class Pipeline:
             # only thing that can change the answer is the clip itself, which is
             # already above.
             sig["frame"] = video.FIT
+            if self.settings.fill_song_video:
+                sig["fit"] = "fill"
         return sig
 
     def _stale(self, song):

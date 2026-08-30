@@ -54,8 +54,13 @@ FPS = "30000/1001"
 # has to be to count as black, out of 255; the spots are where through the clip it
 # is read, keeping away from the opening, which is often a fade from black.
 TRIM_LIMIT = 24
-TRIM_SPOTS = (0.1, 0.35, 0.6, 0.85)
+TRIM_SPOTS = (0.08, 0.28, 0.5, 0.72, 0.9)
 TRIM_SECS = 2.0
+# How much of what was read has to show a border before it counts as one. Every
+# frame read votes, and the border taken is the one three quarters of them agree on
+# at least: a dark scene or a fade is outvoted, and so is the odd shot that fills
+# the frame in a video letterboxed the rest of the time.
+TRIM_AGREE = 0.75
 # Two per cent of a side is the scaler rounding rather than a border, and cutting
 # it would take more picture than it saves black.
 TRIM_LEAST = 0.98
@@ -265,6 +270,15 @@ def still_share(settings, src, start=0.0):
     return len([v for v in seen if float(v) == 0.0]) / float(len(seen))
 
 
+def _agreed(borders):
+    """How much black on one side TRIM_AGREE of the frames read agree on."""
+    if not borders:
+        return 0
+    borders = sorted(borders)
+    return borders[min(int((1.0 - TRIM_AGREE) * len(borders)),
+                       len(borders) - 1)]
+
+
 def content_box(settings, src):
     """Where the picture sits inside a clip that brought black of its own.
 
@@ -275,8 +289,11 @@ def content_box(settings, src):
     around it, which is how a 16:9 disc ends up with bars it has no reason to have.
 
     Read at several points through the clip, because a fade, a night shot or a
-    title card is black where the picture is not, and the box kept is the largest
-    any sample showed. That errs towards keeping picture rather than cutting it.
+    title card is black where the picture is not. Every frame read votes on each
+    side, and a side is only cut as far as three quarters of them agree it is
+    black, so a dark passage cannot take picture off a clip that has none to spare,
+    and one shot that fills the frame cannot keep the bars on a clip that is
+    letterboxed the rest of the time.
     """
     if not src or not os.path.exists(src):
         return None
@@ -295,7 +312,7 @@ def content_box(settings, src):
     length = clip_seconds(settings, src)
     spots = [length * f for f in TRIM_SPOTS] if length > TRIM_SECS else [0.0]
 
-    left, top, right, bottom = w, h, 0, 0
+    sides = {"left": [], "right": [], "top": [], "bottom": []}
     for at in spots:
         r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel",
                       "info", "-ss", "%.3f" % at, "-t", "%.1f" % TRIM_SECS,
@@ -309,11 +326,15 @@ def content_box(settings, src):
             cw, ch, cx, cy = int(cw), int(ch), int(cx), int(cy)
             if cw <= 0 or ch <= 0:
                 continue
-            left, top = min(left, cx), min(top, cy)
-            right, bottom = max(right, cx + cw), max(bottom, cy + ch)
+            sides["left"].append(cx)
+            sides["right"].append(max(w - (cx + cw), 0))
+            sides["top"].append(cy)
+            sides["bottom"].append(max(h - (cy + ch), 0))
 
+    left, right = _agreed(sides["left"]), _agreed(sides["right"])
+    top, bottom = _agreed(sides["top"]), _agreed(sides["bottom"])
     box = None
-    keep_w, keep_h = right - left, bottom - top
+    keep_w, keep_h = w - left - right, h - top - bottom
     believable = keep_w >= w * TRIM_MOST and keep_h >= h * TRIM_MOST
     worth_it = keep_w < w * TRIM_LEAST or keep_h < h * TRIM_LEAST
     if keep_w > 0 and keep_h > 0 and believable and worth_it:
@@ -333,9 +354,16 @@ def framing(settings, src):
     a picture of a different shape needs. A picture near enough the frame's own
     shape fills it instead, since fitting it would trade a few per cent of the
     sides - which nobody sees go - for a line or two of black across the top and
-    bottom, which everybody sees.
+    bottom, which everybody sees. Where the shapes really do differ it is a matter
+    of taste, so the setting decides: some would rather see all of a widescreen
+    video with black above and below it, others would rather the screen were full.
+
+    Black the clip carries is cut off either way. It is not part of the picture,
+    and cropping to fill would otherwise cut real picture to make room for it.
     """
     trim = content_box(settings, src)
+    if settings.fill_song_video:
+        return False, trim
     got = probe_video(settings, src)
     if len(got) < 2 or not got[0].isdigit() or not got[1].isdigit():
         return True, trim

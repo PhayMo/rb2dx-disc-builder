@@ -39,6 +39,12 @@ moved a little either way to suit; `song.ini`'s `video_start_time` is honoured
 where you have not. Or set *Background* to *Black* and have none at all, which
 fits far more songs.
 
+Black a video came with is cut off before it is framed, so a picture boxed inside
+a file of another shape fills the screen rather than sitting in the middle of it.
+Where the picture itself is a different shape from the screen there is no answer
+that costs nothing, so *A song's own video* decides: keep all of it, with black
+above and below, or fill the screen and crop what will not fit.
+
 ## Running it
 
 Unzip the release and run `RB2DX Disc Builder.exe`. The first start takes a good
@@ -74,6 +80,7 @@ Everything the interface does is available without it:
     python -m rb2dx setup --download
     python -m rb2dx setup --background black
     python -m rb2dx setup --screen 16:9
+    python -m rb2dx setup --song-video fill
     python -m rb2dx setup --wide-mix yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
