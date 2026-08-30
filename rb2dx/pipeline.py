@@ -36,7 +36,7 @@ ALL_STAGES = frozenset(name for name, _ in SONG_STAGES)
 # The parts of a song's stamp that only the video stage reads. Change one of
 # these - the background, the bitrate behind it, or how the clip is encoded - and
 # the song's audio, chart and art are still good, so only its video is made again.
-VIDEO_KEYS = ("video_kbps", "background", "video", "picture", "screen")
+VIDEO_KEYS = ("video_kbps", "background", "video", "nudge", "picture", "screen")
 
 # And the parts only the mix depends on. A song's audio is muxed into its .pss,
 # so the video stage has to run as well or the disc would ship a mix one width
@@ -174,6 +174,11 @@ class Pipeline:
                                 int(st.st_mtime)]
             except OSError:
                 sig["video"] = [os.path.basename(own), 0, 0]
+            # Moving that video is the same kind of change, and re-encoding the
+            # clip is all it takes to answer.
+            shift = video.shift_for(self.settings, song.path)[0]
+            if shift:
+                sig["nudge"] = round(shift, 3)
         return sig
 
     def _stale(self, song):

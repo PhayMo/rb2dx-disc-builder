@@ -45,7 +45,8 @@ try:
         print("none selected: %r" % app.songs_tab.usage_note.cget("text"))
 
         # Sorting by every column, and filtering.
-        for column in ("song", "library", "tier", "length", "size", "built"):
+        for column in ("song", "library", "tier", "length", "size", "video",
+                       "built"):
             app.songs_tab.sort(column)
             app.update()
         app.songs_tab.filter_var.set("beatles")
@@ -68,6 +69,27 @@ try:
         app.songs_tab.update_usage()
         app.update()
         print("build page   : %r" % app.build_tab.summary.cget("text"))
+
+        # Moving the video a song brought with it, if any song here brought one.
+        own = [s for s in songs if s.video]
+        print("own videos   : %d of %d songs" % (len(own), len(songs)))
+        if own:
+            from rb2dx.gui.video_dialog import VideoDialog
+            song = own[0]
+            was = app.settings.nudge(song.path)
+            dialog = VideoDialog(app.songs_tab, app, song)
+            app.update()
+            print("video dialog : %r" % dialog._describe())
+            dialog.move(1.0)
+            dialog.accept()
+            app.update()
+            print("nudged to    : %+.2f s, column says %r"
+                  % (app.settings.nudge(song.path),
+                     app.songs_tab.video_cell(song)))
+            app.settings.set_nudge(song.path, was)
+            app.settings.save()
+            app.songs_tab.redraw()
+            app.update()
 
     # The results page with a finished-looking result.
     from rb2dx.pipeline import Result

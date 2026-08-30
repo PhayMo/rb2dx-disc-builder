@@ -33,7 +33,7 @@ import subprocess
 from . import proc
 from .errors import BuildError
 from .library import read_ini
-from .settings import VIDEO_EXT, videos_in
+from .settings import VIDEO_EXT, own_video, videos_in
 
 # Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail uses
 # 2000 kbit/s; 1500 is the tutorial's recommendation and buys ~8 MB of disc,
@@ -66,6 +66,10 @@ STEADY = ("-trellis", "2", "-mpv_flags", "+mv0")
 # with 3s of nothing. Some songs' audio opens with more than that, and the video
 # is sized from the finished audio below, so it stays the shorter of the two.
 LEAD_IN = 3.0
+# A preview of what a background will look like, for the Songs page: how long it
+# runs, and what each side of it is levelled to so neither drowns the other.
+WATCH_SECS = 25.0
+LEVEL = "loudnorm=I=-18:TP=-2:dual_mono=true"
 # "The audio needs to be longer than the video, otherwise the song will freeze
 # when you finish it" - so the video stops short of the audio.
 TAIL_SLACK = 2.0
@@ -78,16 +82,6 @@ ADPCM_BLOCK = 16
 # picture shape, and a steadier encode for a clip that holds still.
 SHAPE = 2
 
-# A song folder can carry its own video, which Clone Hero plays behind that song
-# and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
-# charts use background.<ext> for the same thing, next to the still image of that
-# name. Every format Clone Hero accepts for an animated background is here -
-# .mp4, .avi, .webm, .ogv, .mpeg - plus a few near neighbours of those that
-# ffmpeg reads just as happily, since nothing here has to run on Clone Hero's
-# players. Its animated highways are .webm too, but the highway is not a
-# background: Rock Band 2 draws its own, so those are left alone.
-SONG_VIDEO_NAMES = ("video", "background")
-SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
 
 # An animation or a GIF is usually drawn at 6 frames a second, so playing it at
 # the disc's 30 holds each picture for four or five frames. Those held frames are
@@ -145,11 +139,8 @@ def song_video(source_dir):
     """The video a song folder brought with it, or "" if it has none."""
     if not source_dir or not os.path.isdir(source_dir):
         return ""
-    for name in sorted(os.listdir(source_dir)):
-        stem, ext = os.path.splitext(name)
-        if stem.lower() in SONG_VIDEO_NAMES and ext.lower() in SONG_VIDEO_EXTS:
-            return os.path.join(source_dir, name)
-    return ""
+    name = own_video(os.listdir(source_dir))
+    return os.path.join(source_dir, name) if name else ""
 
 
 def pick_venue(sid, venue_dir):
@@ -175,21 +166,53 @@ def choose_video(sid, venue_dir, source_dir=""):
     return pick_venue(sid, venue_dir), False
 
 
-def video_offset(source_dir):
-    """(seconds into the video to start, seconds of black to add first).
+def shift_for(settings, source_dir):
+    """Seconds this song's own video is moved by, and where that came from.
 
-    song.ini's video_start_time is where in the video Clone Hero starts playing
-    when the song starts. A negative value holds the video back instead, which
-    here means that much black in front of it.
+    The Songs page keeps a nudge per folder and that is the last word on it.
+    Failing one, song.ini's video_start_time is honoured, which is where in the
+    video Clone Hero starts playing when the song starts; a negative value there
+    holds the video back instead.
     """
+    nudge = settings.nudge(source_dir)
+    if nudge:
+        return nudge, "nudged"
     ini = os.path.join(source_dir or "", "song.ini")
     if not os.path.exists(ini):
-        return 0.0, 0.0
+        return 0.0, ""
     try:
         raw = float(read_ini(ini).get("video_start_time", 0) or 0) / 1000.0
     except ValueError:
+        return 0.0, ""
+    return raw, "song.ini" if raw else ""
+
+
+def clip_seconds(settings, path):
+    """How long a clip runs, or 0 if that cannot be read."""
+    out = proc.run(
+        [settings.tool("ffprobe"), "-v", "error", "-show_entries",
+         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return 0.0
+
+
+def offsets(settings, src, shift, seconds):
+    """(seconds to skip once the clip is looping, seconds of black in front).
+
+    A clip shorter than the song plays round and round, and moving it moves where
+    it starts: a backwards nudge wraps to the end of the clip rather than showing
+    black, a loop having no beginning to hold back from. A clip long enough to
+    cover the song on its own does have one, so there a backwards nudge is black.
+    """
+    if not shift or not src:
         return 0.0, 0.0
-    return (raw, 0.0) if raw > 0 else (0.0, abs(raw))
+    length = clip_seconds(settings, src)
+    if length and length < seconds:
+        return shift % length, 0.0
+    return (shift, 0.0) if shift > 0 else (0.0, -shift)
 
 
 def still_share(settings, src, start=0.0):
@@ -212,11 +235,45 @@ def still_share(settings, src, start=0.0):
     return len([v for v in seen if float(v) == 0.0]) / float(len(seen))
 
 
+def shape_filter(settings):
+    """Filters that turn any clip into the frame the disc carries.
+
+    Fills that frame, cropping whatever will not fit, and for a widescreen disc
+    squeezes the wider frame into the stream's 400 across.
+    """
+    frame = WIDE_WIDTH if settings.widescreen else WIDTH
+    vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
+          % (frame, HEIGHT, frame, HEIGHT, FPS))
+    if frame != WIDTH:
+        # setsar keeps the stream's header saying square pixels, as retail's does.
+        # Left to itself ffmpeg would write 16:9 there, and what the console makes
+        # of a header it never sees in its own videos is not worth finding out:
+        # the squeeze is in the picture, not in a flag.
+        vf += ",scale=%d:%d,setsar=1" % (WIDTH, HEIGHT)
+    return vf
+
+
+def extra_lead(settings, sid):
+    """Silence the chart stage put in front of this song's audio, in seconds.
+
+    The mix opens with three seconds of nothing because the console starts the
+    chart three seconds in, and the video opens with the same. A chart that Onyx
+    pushed further along needs more than that, and the video has to wait as long as
+    the music does or the picture runs ahead of it.
+    """
+    try:
+        with open(os.path.join(settings.stage, sid, "layout.json"),
+                  encoding="utf-8") as fp:
+            return (json.load(fp).get("extra_lead_ms") or 0) / 1000.0
+    except (OSError, ValueError):
+        return 0.0
+
+
 def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
                  steady=False):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
-    start skips that far into the source and delay puts that much extra black in
+    start moves the clip that far along and delay puts that much extra black in
     front of it, which is how a song's own video is lined up with its audio. An
     empty src means a black background, generated here rather than read from a
     file: there is nothing to loop, scale or line up, so the whole stream is
@@ -227,25 +284,20 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     kbps = settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
-        # Fill the frame the disc is meant for, cropping whatever will not fit,
-        # and for a widescreen disc squeeze that frame into the stream's 400.
-        frame = WIDE_WIDTH if settings.widescreen else WIDTH
-        vf = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%s"
-              % (frame, HEIGHT, frame, HEIGHT, FPS))
-        if frame != WIDTH:
-            # setsar keeps the stream's header saying square pixels, as retail's
-            # does. Left to itself ffmpeg would write 16:9 there, and what the
-            # console makes of a header it never sees in its own videos is not
-            # worth finding out: the squeeze is in the picture, not in a flag.
-            vf += ",scale=%d:%d,setsar=1" % (WIDTH, HEIGHT)
+        vf = shape_filter(settings)
+        if start:
+            # Moved after the clip is already looping, rather than by seeking the
+            # file: a seek is applied again on every pass, which throws the front
+            # of the clip away each time round and shortens the loop. Dropping the
+            # opening of the looped stream instead moves where the clip starts and
+            # keeps all of it, and a nudge longer than the clip simply wraps. The
+            # frames skipped are decoded and discarded, which costs a moment.
+            vf += ",trim=start=%.3f,setpts=PTS-STARTPTS" % start
         if steady:
             vf += "," + SOFTEN
         vf += ",tpad=start_duration=%s:start_mode=add:color=black" % (LEAD_IN
                                                                      + delay)
-        cmd += ["-stream_loop", "-1"]
-        if start:
-            cmd += ["-ss", "%.3f" % start]
-        cmd += ["-i", src, "-vf", vf]
+        cmd += ["-stream_loop", "-1", "-i", src, "-vf", vf]
     else:
         cmd += ["-f", "lavfi", "-i", "color=c=black:s=%dx%d:r=%s"
                 % (WIDTH, HEIGHT, FPS)]
@@ -261,6 +313,91 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
         cmd += ["-qmin", str(STILL_QMIN)]
     cmd += [dst]
     return proc.run(cmd, capture_output=True, text=True)
+
+
+def still(settings, src, dst, at=0.0, wide=0):
+    """One frame of a clip, framed as the disc will carry it, to look at.
+
+    `wide` asks for it smaller than the disc's own frame, for a window with less
+    room than that to give it.
+    """
+    vf = shape_filter(settings)
+    if wide and wide < WIDTH:
+        vf += ",scale=%d:%d" % (wide, round(wide * HEIGHT / float(WIDTH) / 2) * 2)
+    r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error",
+                  "-y", "-ss", "%.3f" % max(at, 0.0), "-i", src,
+                  "-vf", vf, "-frames:v", "1", dst],
+                 capture_output=True, text=True)
+    return r.returncode == 0 and os.path.exists(dst)
+
+
+def black_still(settings, dst, wide=0):
+    """The same frame with nothing on it, for a moment the disc plays black."""
+    across = wide if 0 < wide < WIDTH else WIDTH
+    down = round(across * HEIGHT / float(WIDTH) / 2) * 2
+    r = proc.run([settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error",
+                  "-y", "-f", "lavfi",
+                  "-i", "color=c=black:s=%dx%d" % (across, down),
+                  "-frames:v", "1", dst], capture_output=True, text=True)
+    return r.returncode == 0 and os.path.exists(dst)
+
+
+def watch(settings, clip, dst, clip_at, stems=(), song_at=0.0,
+          seconds=WATCH_SECS):
+    """A piece of what the disc will play, to see and hear before building it.
+
+    The picture goes through the same filters the disc's own encode uses, so it is
+    framed the way the game frames it. The clip's own audio comes out of the left
+    ear and the song out of the right, which is how two recordings are told apart
+    by ear when they are playing together; a clip with no audio leaves that ear
+    empty and the song is heard on its own.
+    """
+    heard = has_sound(settings, clip)
+    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
+           "-stream_loop", "-1", "-i", clip]
+    for path in stems:
+        cmd += ["-i", path]
+
+    # The clip is moved after it is looping, for the reason encode_video gives.
+    chain = ["[0:v]%s,trim=start=%.3f,setpts=PTS-STARTPTS[v]"
+             % (shape_filter(settings), clip_at)]
+    ears = []
+    if heard:
+        chain.append("[0:a]atrim=start=%.3f,asetpts=PTS-STARTPTS,"
+                     "pan=mono|c0=c0,%s[clip]" % (clip_at, LEVEL))
+        ears.append("[clip]")
+    if stems:
+        song = "".join("[%d:a]" % (i + 1) for i in range(len(stems)))
+        if len(stems) > 1:
+            song += "amix=inputs=%d:normalize=0," % len(stems)
+        chain.append("%satrim=start=%.3f,asetpts=PTS-STARTPTS,pan=mono|c0=c0,%s"
+                     "[song]" % (song, song_at, LEVEL))
+        ears.append("[song]")
+    if len(ears) == 2:
+        chain.append("%sjoin=inputs=2:channel_layout=stereo[a]"
+                     % "".join(ears))
+    elif ears:
+        chain.append("%sanull[a]" % ears[0])
+
+    cmd += ["-filter_complex", ";".join(chain), "-map", "[v]"]
+    if ears:
+        cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]
+    cmd += ["-t", "%.3f" % seconds, "-c:v", "libx264", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst]
+    r = proc.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.exists(dst):
+        raise BuildError("Could not put a preview together: %s"
+                         % (r.stderr or r.stdout).strip()[:200])
+    return heard
+
+
+def has_sound(settings, path):
+    """Whether a file carries any audio at all."""
+    out = proc.run(
+        [settings.tool("ffprobe"), "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+        capture_output=True, text=True).stdout
+    return "audio" in (out or "")
 
 
 def probe_video(settings, path):
@@ -341,16 +478,24 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
         venue, own = "", False
     else:
         venue, own = choose_video(sid, venue_dir, source_dir)
-    start, delay = video_offset(source_dir) if own else (0.0, 0.0)
+    shift, told_by = shift_for(settings, source_dir) if own else (0.0, "")
+    start, delay = offsets(settings, venue, shift, vid_secs)
+    waited = extra_lead(settings, sid)
     what = "black" if not venue else os.path.basename(venue)
 
     if log:
         log("audio: %d ch @ %d Hz, %.2fs (VGS v%d) -> %d bytes/sec"
             % (info["channels"], info["rate"], info["seconds"],
                info["version"], rate))
+        moved = ""
+        if start:
+            moved = ", from %.2fs in (%s %+.2fs)" % (start, told_by, shift)
+        elif delay:
+            moved = ", %.2fs of black first (%s %+.2fs)" % (delay, told_by, shift)
+        if waited:
+            moved += ", waiting %.2fs for the music" % waited
         log("%s: %s%s" % ("the song's own video" if own else "background", what,
-                          (", from %.2fs in" % start) if start else
-                          (", %.2fs of black first" % delay) if delay else ""))
+                          moved))
 
     m2v, pss = outputs(settings, sid)
     # The song's audio lives in the .pss alongside the video, so a re-mixed song
@@ -359,7 +504,7 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     # for it when the clip that is already staged was made from the same things.
     want = {"clip": os.path.basename(venue), "kbps": settings.encode_kbps,
             "seconds": round(vid_secs, 2), "start": round(start, 3),
-            "delay": round(delay, 3), "shape": SHAPE,
+            "delay": round(delay + waited, 3), "shape": SHAPE,
             "screen": settings.screen}
     note = ""
     if os.path.exists(m2v) and os.path.getsize(m2v) and encoded_from(m2v) == want:
@@ -373,7 +518,8 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
                 share * 100)
             if log:
                 log("video:%s" % note)
-        r = encode_video(settings, venue, m2v, vid_secs, start, delay, steady)
+        r = encode_video(settings, venue, m2v, vid_secs, start, delay + waited,
+                         steady)
         if r.returncode != 0 or not os.path.exists(m2v) \
                 or os.path.getsize(m2v) == 0:
             return False, "could not encode the background video: %s" % (

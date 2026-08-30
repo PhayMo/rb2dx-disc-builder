@@ -61,11 +61,26 @@ DEFAULTS = {
     # goes beside the ISO.
     "disc_folder": False,
     "disc_folder_path": "",
+    # Seconds to shift the video a song folder brought with it, by folder. A clip
+    # shorter than the song plays round and round, and this moves where it starts;
+    # see video.shift_for.
+    "video_nudges": {},
     "tools": {},
 }
 
 
 VIDEO_EXT = (".mp4", ".webm", ".mkv", ".avi", ".mov", ".m4v", ".mpg", ".mpeg")
+
+# A song folder can carry its own video, which Clone Hero plays behind that song
+# and so do we, in place of a venue clip. Clone Hero names it video.<ext>; some
+# charts use background.<ext> for the same thing, next to the still image of that
+# name. Every format Clone Hero accepts for an animated background is here -
+# .mp4, .avi, .webm, .ogv, .mpeg - plus a few near neighbours of those that
+# ffmpeg reads just as happily, since nothing here has to run on Clone Hero's
+# players. Its animated highways are .webm too, but the highway is not a
+# background: Rock Band 2 draws its own, so those are left alone.
+SONG_VIDEO_NAMES = ("video", "background")
+SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
 
 BACKGROUNDS = ("venues", "black")
 
@@ -77,12 +92,26 @@ SCREENS = ("4:3", "16:9")
 BLACK_KBPS = 150
 
 
+def _folder_key(path):
+    """One spelling of a folder, so a nudge is found again however it is typed."""
+    return os.path.normcase(os.path.normpath(path or ""))
+
+
 def videos_in(folder):
     """The video files in a folder, in a fixed order, or [] if it has none."""
     if not folder or not os.path.isdir(folder):
         return []
     return sorted(f for f in os.listdir(folder)
                   if f.lower().endswith(VIDEO_EXT))
+
+
+def own_video(files):
+    """Which of these file names is a song's own video, or "" if none is."""
+    for name in sorted(files):
+        stem, ext = os.path.splitext(name)
+        if stem.lower() in SONG_VIDEO_NAMES and ext.lower() in SONG_VIDEO_EXTS:
+            return name
+    return ""
 
 
 def bundled_venues():
@@ -151,6 +180,12 @@ class Settings:
         self.drop_demos = bool(merged["drop_demos"])
         self.disc_folder = bool(merged["disc_folder"])
         self.disc_folder_path = merged["disc_folder_path"]
+        self.video_nudges = {}
+        for folder, secs in (merged["video_nudges"] or {}).items():
+            try:
+                self.video_nudges[_folder_key(folder)] = float(secs)
+            except (TypeError, ValueError):
+                continue
         self.tools = dict(merged["tools"])
 
     # ---- loading and saving ------------------------------------------------
@@ -183,6 +218,7 @@ class Settings:
                 "drop_demos": self.drop_demos,
                 "disc_folder": self.disc_folder,
                 "disc_folder_path": self.disc_folder_path,
+                "video_nudges": self.video_nudges,
                 "tools": self.tools,
             }, fp, indent=2)
         return path
@@ -218,6 +254,20 @@ class Settings:
     def widescreen(self):
         """Draw the videos for a game set to 16:9 rather than 4:3."""
         return self.screen == "16:9"
+
+    # ---- a song's own video ------------------------------------------------
+
+    def nudge(self, source_dir):
+        """Seconds this folder's own video has been moved by, 0 if untouched."""
+        return self.video_nudges.get(_folder_key(source_dir), 0.0)
+
+    def set_nudge(self, source_dir, seconds):
+        """Move this folder's video, or put it back with a nudge of nothing."""
+        key = _folder_key(source_dir)
+        if round(seconds or 0.0, 3):
+            self.video_nudges[key] = round(float(seconds), 3)
+        else:
+            self.video_nudges.pop(key, None)
 
     def work_dir(self, *parts):
         if not self.work:

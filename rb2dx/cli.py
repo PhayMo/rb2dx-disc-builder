@@ -226,6 +226,55 @@ def cmd_build(args):
     return 1 if result.cancelled else 0
 
 
+def cmd_nudge(args):
+    from . import align, audio, video
+
+    s = load()
+    folder = os.path.normpath(args.folder)
+    clip = video.song_video(folder)
+    if not clip:
+        print("%s has no video of its own, so a background clip plays behind it "
+              "and there is nothing to line up. Put a file named video.mp4 in "
+              "there to give it one." % folder)
+        return 1
+    length = video.clip_seconds(s, clip)
+    song_secs = max([audio.probe_audio(s, p)[1]
+                     for p in audio.stems_in(folder).values()] or [0.0])
+    print("%s, %.2f s, behind a %.2f s song" % (os.path.basename(clip), length,
+                                                song_secs))
+
+    if args.detect:
+        seconds, fit, trouble, note = align.match(s, folder, clip)
+        if trouble:
+            print(trouble.capitalize() + ".")
+            return 1
+        print(align.describe(seconds, fit).capitalize() + ".")
+        if note:
+            print(note.capitalize() + ".")
+        args.seconds = round(seconds, 2)
+
+    if args.seconds is None:
+        shift, told_by = video.shift_for(s, folder)
+        print("Moved %+.2f s%s" % (shift, " (from %s)" % told_by if told_by
+                                   else ", which is not at all"))
+        return 0
+
+    s.set_nudge(folder, args.seconds)
+    s.save()
+    shift = s.nudge(folder)
+    if not shift:
+        print("Back to the start of the clip.")
+    elif length and length < song_secs:
+        print("Starts %.2f s in, of %.2f s, and loops round from there."
+              % (shift % length, length))
+    elif shift > 0:
+        print("Starts %.2f s into the clip." % shift)
+    else:
+        print("Held back by %.2f s, showing black until it begins." % -shift)
+    print("The next build re-encodes this song's video and nothing else.")
+    return 0
+
+
 def cmd_gui(args):
     from .gui import app
     app.main()
@@ -299,6 +348,19 @@ def main(argv=None):
     p.add_argument("--no-iso", action="store_true")
     p.add_argument("--no-verify", action="store_true")
     p.set_defaults(func=cmd_build)
+
+    p = sub.add_parser("nudge", help="move the video a song folder brought")
+    p.add_argument("folder", help="the song folder holding the video")
+    p.add_argument("seconds", nargs="?", type=float,
+                   help="how far to move it: forwards starts that far into the "
+                        "clip, backwards wraps to its end. Left out, this says "
+                        "where the video stands now")
+    # --by-ear was the first name for this and still works, so anything written
+    # against it keeps running.
+    p.add_argument("--detect", "--by-ear", dest="detect", action="store_true",
+                   help="find it by matching the video's own audio against the "
+                        "song, for a folder holding the real music video")
+    p.set_defaults(func=cmd_nudge)
 
     p = sub.add_parser("gui", help="open the graphical version")
     p.set_defaults(func=cmd_gui)

@@ -6,7 +6,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .. import library, plan as planner, settings as settings_mod
-from .common import PAD, Section, UsageBar, human, mmss
+from . import video_dialog
+from .common import PAD, Section, UsageBar, human, mmss, reveal
 
 ON, OFF = "\u2611", "\u2610"
 
@@ -67,21 +68,23 @@ class SongsTab(ttk.Frame):
         ttk.Checkbutton(bar, text="Hide songs that failed before",
                         variable=self.hide_bad,
                         command=self.redraw).pack(side="left")
+        ttk.Button(bar, text="Line up a video...",
+                   command=self.line_up_video).pack(side="left", padx=PAD)
         ttk.Button(bar, text="All", width=5,
                    command=lambda: self.set_all(True)).pack(side="right")
         ttk.Button(bar, text="None", width=6,
                    command=lambda: self.set_all(False)).pack(side="right",
                                                              padx=4)
 
-        cols = ("song", "library", "tier", "length", "size", "built")
+        cols = ("song", "library", "tier", "length", "size", "video", "built")
         # A modest requested height, so the usage bar below always has room and
         # the table simply grows with the window.
         self.tree = ttk.Treeview(table, columns=cols, show="tree headings",
                                  height=8, selectmode="extended")
-        headings = [("#0", "", 34), ("song", "Song", 330),
-                    ("library", "Collection", 150), ("tier", "Difficulty", 100),
+        headings = [("#0", "", 34), ("song", "Song", 300),
+                    ("library", "Collection", 140), ("tier", "Difficulty", 90),
                     ("length", "Length", 70), ("size", "On disc", 80),
-                    ("built", "State", 150)]
+                    ("video", "Video", 90), ("built", "State", 140)]
         for key, title, width in headings:
             self.tree.heading(key, text=title,
                               command=(lambda k=key: self.sort(k))
@@ -89,7 +92,7 @@ class SongsTab(ttk.Frame):
             self.tree.column(key, width=width,
                              stretch=(key == "song"),
                              anchor="w" if key in ("#0", "song", "library",
-                                                   "built") else "e")
+                                                   "video", "built") else "e")
         self.tree.grid(row=1, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(table, orient="vertical",
                                command=self.tree.yview)
@@ -100,6 +103,13 @@ class SongsTab(ttk.Frame):
         self.tree.bind("<Button-1>", self._click)
         self.tree.bind("<space>", lambda e: self.toggle_selected())
         self.tree.bind("<Double-1>", lambda e: self.toggle_selected())
+        self.tree.bind("<Button-3>", self._context)
+
+        self.menu = tk.Menu(self, tearoff=0)
+        self.menu.add_command(label="Line up its video...",
+                              command=self.line_up_video)
+        self.menu.add_command(label="Open the song folder",
+                              command=self.open_folder)
 
         # ---- disc usage ----------------------------------------------------
         usage = ttk.Frame(self)
@@ -221,6 +231,8 @@ class SongsTab(ttk.Frame):
             "tier": lambda s: (-1 if s.tier is None else s.tier),
             "length": lambda s: s.seconds,
             "size": lambda s: getattr(s, "bytes", 0),
+            "video": lambda s: (bool(s.video),
+                                self.app.settings.nudge(s.path)),
             "built": lambda s: s.path in self.known_bad,
         }
         out.sort(key=keys.get(self.sort_by, keys["library"]),
@@ -250,14 +262,76 @@ class SongsTab(ttk.Frame):
                 text=ON if self.chosen.get(song.path) else OFF,
                 values=(song.label, song.library, library.tier_name(song.tier),
                         mmss(song.seconds), human(getattr(song, "bytes", 0)),
-                        built),
+                        self.video_cell(song), built),
                 tags=tuple(tags))
         self.update_usage()
+
+    def video_cell(self, song):
+        """What the Video column says: whose video plays, and how far it is moved.
+
+        Blank means a background clip from the venues folder, which is most songs
+        and not worth a word in every row.
+        """
+        if not song.video or self.app.settings.black_background:
+            return ""
+        nudge = self.app.settings.nudge(song.path)
+        return "own %+.2fs" % nudge if nudge else "own"
 
     def sort(self, key):
         self.sort_desc = not self.sort_desc if self.sort_by == key else False
         self.sort_by = key
         self.redraw()
+
+    # ---- a song's own video ------------------------------------------------
+
+    def focused_song(self):
+        """The song the row commands act on, or None with a word about why not."""
+        paths = list(self.tree.selection()) or [self.tree.focus()]
+        found = [s for s in self.songs if s.path in paths]
+        if len(found) != 1:
+            messagebox.showinfo(
+                "Which song?",
+                "Click the song in the list first, then try again."
+                if not found else
+                "Pick one song at a time for this.")
+            return None
+        return found[0]
+
+    def line_up_video(self):
+        song = self.focused_song()
+        if song is None:
+            return
+        if self.app.settings.black_background:
+            messagebox.showinfo(
+                "Nothing is playing",
+                "The background is set to black on the Setup page, so no video "
+                "plays behind any song. Set it back to the background clips "
+                "first.")
+            return
+        if not song.video:
+            messagebox.showinfo(
+                "No video in this folder",
+                "%s has no video of its own, so a background clip plays behind "
+                "it and there is nothing to line up.\n\nTo give it one, put a "
+                "file named video.mp4 - or any of %s - in its folder and scan "
+                "again."
+                % (song.label,
+                   ", ".join("video%s" % e
+                             for e in settings_mod.SONG_VIDEO_EXTS[:4])))
+            return
+        video_dialog.VideoDialog(self, self.app, song)
+
+    def open_folder(self):
+        song = self.focused_song()
+        if song is not None:
+            reveal(song.path)
+
+    def _context(self, event):
+        path = self.tree.identify_row(event.y)
+        if path:
+            self.tree.selection_set(path)
+            self.tree.focus(path)
+        self.menu.tk_popup(event.x_root, event.y_root)
 
     def _click(self, event):
         if self.tree.identify_region(event.x, event.y) != "tree":

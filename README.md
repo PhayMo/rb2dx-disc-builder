@@ -34,9 +34,10 @@ rather than being dropped. Lyrics on their own are not a vocals part.
 
 Eleven background clips come with it, in `venues\`, one picked per song and
 looped behind it - drop your own in there instead. A song holding its own `video`
-or `background` file plays that, in any format Clone Hero accepts, and
-`song.ini`'s `video_start_time` is honoured. Or set *Background* to *Black* and
-have none at all, which fits far more songs.
+or `background` file plays that, in any format Clone Hero accepts, and can be
+moved a little either way to suit; `song.ini`'s `video_start_time` is honoured
+where you have not. Or set *Background* to *Black* and have none at all, which
+fits far more songs.
 
 ## Running it
 
@@ -116,6 +117,67 @@ cannot draw the same way twice, and a still picture redrawn a little differently
 each frame crawls on a television. Footage that really moves is left sharp.
 Neither changes what a song costs on the disc.
 
+A song folder holding its own video plays that instead of a background clip, and
+the *Video* column on the Songs page marks the ones that do. Such a clip is
+usually shorter than the song and plays round and round behind it, and where it
+starts is a matter of taste, so *Line up a video...* moves it. Going forwards
+starts that far into the clip, going back wraps round to its end, and either way
+nothing is cut out of it: every pass still plays the clip whole. A video long
+enough to cover the song on its own has a real beginning instead, so there going
+back holds it behind black. The picture starts with the music either way - a chart
+that had to be pushed along has more than the usual three seconds of silence in
+front of it, and the video waits exactly as long.
+
+A number on its own says nothing, so that window draws the song along the top and the
+video's own audio under it, and the video's wave is dragged along the song until the
+two line up. Only the video moves - the song is what everything is measured against,
+so a hand on it scrolls the view instead. The clip is drawn as it will play, round and
+round, with a mark at every point it starts over, and the frame beside it is the one
+the disc will show at the marker, so the picture keeps up with the drag. The wheel
+scrolls and ctrl and the wheel zooms, down to a fraction of a second across the window
+when a drum has to land on a cut.
+
+Lining a video up is done by ear, so *Play* plays it: twelve seconds from the marker,
+round and round until you stop it, the clip in one ear and the song in the other, with
+a line walking along the waves to show where you are. Each track has its own *mute*
+beside it, and muting one carries on from where you were rather than starting over, so
+one side can be listened to alone and the other brought back in without losing the
+place. Both are levelled first, since a rip off television and a set of stems are
+rarely within ten decibels of each other. Drag while it is playing and the stretch
+starts again from where the video now falls, so the loop is drag, listen, drag again
+until the two agree. *Stop* puts the line back where it began, and the space bar plays
+and stops.
+
+Stopping on hearing something is how the moment is usually found, so where it was
+stopped is kept and marked on the waves. *Snap the marker there* starts playing from
+it, and *Start the video there* moves the video so a pass begins on it - the whole
+point of listening to one side alone. A hand on a button lands within a couple of
+tenths of a second, so finish with the small buttons either side of the number, or
+with *Find it automatically* where the video carries the song itself.
+
+*Watch* then renders twenty-five seconds of the real thing and opens it in your video
+player, starting where the video does, so the picture can be judged along with the
+sound. Click the timeline to watch or listen from somewhere else instead. Both the
+frame and the preview are made from the same filters the disc's video is, so what you
+see is what the game gets.
+
+Where the folder holds the song's actual music video there is a right answer rather
+than a preference, and *Find it automatically* works it out by matching the video's
+own audio against the stems, to within a frame. It cuts the video into pieces and asks
+each one where in the whole song it sits, which is what a television opening needs:
+ninety seconds of a four minute song, and often not the first ninety - Naruto's opens
+half a minute in, Re:Re a minute in. A rip off television still counts as the song, so
+what decides it is whether the pieces agree with each other rather than how clean the
+recording is, and a clip that has nothing to do with the song is told so and your
+number left alone.
+
+Some openings cannot be lined up at all: they are cut from two or three parts of the
+song with the rest thrown away, so no one offset can hold. Those are recognised for
+what they are - the pieces agree in groups rather than all together - and the answer
+given puts the part the video opens with where it belongs, saying that it drifts from
+the first cut. Moving a video re-encodes that one song's video on the next build and
+touches nothing else.
+
 The console draws that frame across the whole screen, so with the game's own
 *Widescreen* setting on it comes out a third wider than it was drawn. Set
 *Picture* to *16:9* and the disc is made for that: each clip is framed 16:9 and
@@ -138,6 +200,8 @@ Everything the interface does is available without it:
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
     python -m rb2dx plan
+    python -m rb2dx nudge "D:\Charts\Some Song" 4.5
+    python -m rb2dx nudge "D:\Charts\Some Song" --detect
     python -m rb2dx build
 
 Both share one settings file, in `%LOCALAPPDATA%\rb2dxbuilder\settings.json`.

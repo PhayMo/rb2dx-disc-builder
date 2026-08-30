@@ -15,7 +15,7 @@ import json
 import os
 import re
 
-from . import midfix, proc
+from . import midfix, proc, settings as settings_mod
 
 AUDIO_EXT = (".ogg", ".opus", ".mp3", ".wav")
 CHART_NAMES = ("notes.mid", "notes.chart")
@@ -85,6 +85,9 @@ class Song:
         self.has_art = kw.get("has_art", False)
         self.stems = kw.get("stems") or []
         self.parts = kw.get("parts") or []
+        # The name of the video this folder brought with it, if it brought one;
+        # that video plays behind this song in place of a venue clip.
+        self.video = kw.get("video") or ""
         self.sid = kw.get("sid") or ""
 
     @property
@@ -321,7 +324,8 @@ def scan(settings, rescan=False, progress=None, log=None):
                         title=meta.get("name"), artist=meta.get("artist"),
                         tier=tier,
                         has_art=any(a in files for a in ART_NAMES),
-                        stems=sorted(stems), parts=parts)
+                        stems=sorted(stems), parts=parts,
+                        video=settings_mod.own_video(files))
             if unchanged and known.get("seconds"):
                 song.seconds = known["seconds"]
             else:
