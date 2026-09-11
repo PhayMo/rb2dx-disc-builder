@@ -45,6 +45,26 @@ Where the picture itself is a different shape from the screen there is no answer
 that costs nothing, so *A song's own video* decides: keep all of it, with black
 above and below, or fill the screen and crop what will not fit.
 
+*Video quality* is what each of those backgrounds costs on the disc, since two
+thirds of a song's size is its video. The default 1500 kbps is a little under what
+the game itself used, which was 2500.
+
+## Making it your disc
+
+*Title screen* on the Setup page changes what the title screen and the main menu are
+headed with - both, since it is one logo drawn twice.
+
+*Logo* is the picture. *Deluxe logo* is the one this program comes with, which is the
+Deluxe logo drawn larger than the disc's own. *Browse* takes a picture of yours
+instead: a PNG with a see-through background, and wide rather than tall, since it goes
+into a space four times as wide as it is high. Left empty, whatever logo the release
+already has is left alone.
+
+*Words under it* draws whatever you type beneath that logo: *Beatles Edition*, the
+name of a setlist, a date. Up to 42 letters, and a long one is drawn smaller rather
+than running off the edge. With nothing typed, the picture gets those rows to itself
+and comes out larger still.
+
 ## Running it
 
 Unzip the release and run `RB2DX Disc Builder.exe`. The first start takes a good
@@ -81,6 +101,10 @@ Everything the interface does is available without it:
     python -m rb2dx setup --background black
     python -m rb2dx setup --screen 16:9
     python -m rb2dx setup --song-video fill
+    python -m rb2dx setup --video 2500
+    python -m rb2dx setup --title-text "Beatles Edition"
+    python -m rb2dx setup --title-art deluxe
+    python -m rb2dx setup --title-art "D:\Art\my logo.png"
     python -m rb2dx setup --wide-mix yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan

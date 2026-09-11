@@ -35,11 +35,12 @@ from .errors import BuildError
 from .library import read_ini
 from .settings import VIDEO_EXT, own_video, videos_in
 
-# Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail uses
-# 2000 kbit/s; 1500 is the tutorial's recommendation and buys ~8 MB of disc,
-# which matters because every megabyte counts against the size limit below
-# which the console treats the image as a CD rather than a DVD. The rate itself
-# comes from the settings, which default to 1500.
+# Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail runs 2000
+# kbit/s behind a song and 2500 for its intro movie, and nothing above that;
+# 1500 is the tutorial's recommendation and buys ~8 MB of disc, which matters
+# because every megabyte counts against the size limit below which the console
+# treats the image as a CD rather than a DVD. The rate itself comes from the
+# settings, which default to 1500.
 WIDTH, HEIGHT = 400, 304
 # The console plays that frame across the whole screen, so with the game set to
 # 16:9 it comes out a third wider than it was drawn. A disc meant for that setting

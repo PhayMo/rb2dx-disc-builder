@@ -120,13 +120,16 @@ class Section(ttk.LabelFrame):
 class PathRow:
     """An entry with a Browse button, bound to a Tk variable.
 
+    kind is "dir" for a folder, "open" for a file that has to be there already, and
+    anything else for a file being written.
+
     The row is built inside the section it belongs to: a widget gridded into a
     container that is not its parent gets positioned in the wrong coordinate
     space and drifts outside the group box.
     """
 
     def __init__(self, section, label, kind="dir", hint=None,
-                 on_change=None, filetypes=None):
+                 on_change=None, filetypes=None, others=()):
         self.var = tk.StringVar()
         self.kind = kind
         self.filetypes = filetypes or [("Disc image", "*.iso"),
@@ -139,12 +142,22 @@ class PathRow:
         self.button = ttk.Button(frame, text="Browse...", width=10,
                                  command=self.browse)
         self.button.grid(row=0, column=1, padx=(6, 0))
+        # A row can offer paths worth having to hand as buttons of their own, for a
+        # setting whose usual answers are known: a file that came with the program,
+        # say, which nobody should have to go and find.
+        self.others = []
+        for at, (text, what) in enumerate(others):
+            button = ttk.Button(frame, text=text, width=max(10, len(text) + 2),
+                                command=lambda value=what: self.set(
+                                    value() if callable(value) else value))
+            button.grid(row=0, column=2 + at, padx=(6, 0))
+            self.others.append(button)
         section.add_row(label, frame, hint=hint)
         self.var.trace_add("write", lambda *_: self.on_change and self.on_change())
 
     def enable(self, on):
         """Grey the row out when the thing it configures is switched off."""
-        for widget in (self.entry, self.button):
+        for widget in [self.entry, self.button] + self.others:
             widget.state(["!disabled"] if on else ["disabled"])
 
     def browse(self):
@@ -153,6 +166,9 @@ class PathRow:
         if self.kind == "dir":
             picked = filedialog.askdirectory(initialdir=start or None,
                                              mustexist=False)
+        elif self.kind == "open":
+            picked = filedialog.askopenfilename(initialdir=start or None,
+                                                filetypes=self.filetypes)
         else:
             picked = filedialog.asksaveasfilename(
                 initialdir=start or None, defaultextension=".iso",

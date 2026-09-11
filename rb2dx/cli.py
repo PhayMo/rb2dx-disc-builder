@@ -14,7 +14,8 @@ import argparse
 import os
 import sys
 
-from . import iso, library, plan as planner, settings as settings_mod, tools
+from . import (iso, library, menus, plan as planner, settings as settings_mod,
+               tools)
 from .errors import BuildError
 from .settings import Settings, SettingsError
 
@@ -25,6 +26,18 @@ def human(n):
 
 def load():
     return Settings.load()
+
+
+def _picture(given):
+    """What --title-art was asking for: the logo shipped, a file, or nothing."""
+    wanted = (given or "").strip().strip('"')
+    if wanted.lower() in ("deluxe", "rb2dx"):
+        return menus.logo_art()
+    if wanted and not os.path.exists(wanted):
+        raise SystemExit("There is no picture at %s. --title-art deluxe for the logo "
+                         "this program ships, --title-art= to leave the release's own "
+                         "logo alone." % wanted)
+    return os.path.abspath(wanted) if wanted else ""
 
 
 def cmd_setup(args):
@@ -57,6 +70,12 @@ def cmd_setup(args):
         changed = True
     if args.song_video:
         s.song_video = args.song_video
+        changed = True
+    if args.title_text is not None:
+        s.title_text = menus.tidy(args.title_text)
+        changed = True
+    if args.title_art is not None:
+        s.title_art = _picture(args.title_art)
         changed = True
     if args.wide_mix:
         s.wide_mix = args.wide_mix == "yes"
@@ -132,6 +151,10 @@ def cmd_setup(args):
                                      else "kept whole, black where they do not "
                                           "reach"))
         print("  vocal/backing%s" % (" stereo" if s.wide_mix else " mono"))
+        print("  title logo   %s" % (s.title_art or ("the Deluxe one" if s.title_text
+                                     else "the release's own, untouched")))
+        print("  title text   %s" % ("\"%s\", under both logos" % s.title_text
+                                     if s.title_text else "none"))
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
         print("  base songs   %s" % ("left out" if s.drop_demos else "kept"))
@@ -201,6 +224,10 @@ def cmd_build(args):
         s.screen = args.screen
     if args.song_video:
         s.song_video = args.song_video
+    if args.title_text is not None:
+        s.title_text = menus.tidy(args.title_text)
+    if args.title_art is not None:
+        s.title_art = _picture(args.title_art)
     if args.jobs:
         s.jobs = args.jobs
 
@@ -324,6 +351,16 @@ def main(argv=None):
                         "the screen's: keep the whole picture, or fill the "
                         "screen and crop what will not fit")
     p.add_argument("--video", type=int, metavar="KBPS")
+    # --title-text= with nothing after it is the way to clear one of these: an empty
+    # argument written as "" reaches argparse from cmd but not from PowerShell.
+    p.add_argument("--title-text", metavar="WORDS",
+                   help="words to draw under the logo on the title screen and the "
+                        "main menu, such as \"Beatles Edition\". --title-text= for "
+                        "none")
+    p.add_argument("--title-art", metavar="PICTURE",
+                   help="the logo drawn on both screens: a picture of your own, "
+                        "see-through around the art, or \"deluxe\" for the one this "
+                        "program ships. --title-art= leaves the release's own alone")
     p.add_argument("--wide-mix", choices=("yes", "no"),
                    help="carry the vocal and the backing in stereo rather than "
                         "one channel each, for two channels more per song")
@@ -358,6 +395,8 @@ def main(argv=None):
     p.add_argument("--screen", choices=settings_mod.SCREENS)
     p.add_argument("--song-video", choices=settings_mod.SONG_VIDEO_FITS)
     p.add_argument("--video", type=int, metavar="KBPS")
+    p.add_argument("--title-text", metavar="WORDS")
+    p.add_argument("--title-art", metavar="PICTURE")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--no-iso", action="store_true")
     p.add_argument("--no-verify", action="store_true")

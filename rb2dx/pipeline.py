@@ -17,7 +17,7 @@ import threading
 import time
 import traceback
 
-from . import art, ark, charts, dta, iso, plan, verify, video, vgs
+from . import art, ark, charts, dta, iso, menus, plan, verify, video, vgs
 from . import audio as audio_stage
 from .errors import BuildError, Cancelled
 
@@ -370,6 +370,10 @@ class Pipeline:
             self._check()
             self.on_stage("Building the game archive")
             ark.assemble(settings, shipped, log=self.log)
+            if settings.title_text or settings.title_art or settings.menu_highlight:
+                self._check()
+                self.on_stage("Dressing the menus")
+                menus.dress(settings, log=self.log)
             ark.pack(settings, log=self.log)
             result.shipped = shipped
 

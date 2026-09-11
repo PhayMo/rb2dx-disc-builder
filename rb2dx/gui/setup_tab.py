@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import iso, settings as settings_mod, tools
+from .. import iso, menus, settings as settings_mod, tools
 from .common import PAD, PathRow, ScrollFrame, Section
 
 DISC_PRESETS = [
@@ -16,7 +16,7 @@ DISC_PRESETS = [
 
 VIDEO_PRESETS = [
     ("Good, 1500 kbps - about 11 MB a minute", 1500),
-    ("Better, 2500 kbps", 2500),
+    ("Better, 2500 kbps - stock", 2500),
     ("Best, 3000 kbps - about 22 MB a minute", 3000),
     ("Smaller, 900 kbps", 900),
 ]
@@ -35,6 +35,9 @@ SONG_VIDEO_PRESETS = [
     ("Keep all of it, with black where it does not reach", "whole"),
     ("Fill the screen, cropping what will not fit", "fill"),
 ]
+
+PICTURE_TYPES = [("Pictures", "*.png *.tga *.bmp *.jpg *.jpeg"),
+                 ("All files", "*.*")]
 
 
 class SetupTab(ttk.Frame):
@@ -99,8 +102,7 @@ class SetupTab(ttk.Frame):
             disc, textvariable=self.video_var, state="readonly",
             values=[name for name, _ in VIDEO_PRESETS]),
             hint="Lower quality fits more songs, at some cost to how the "
-                 "background looks. The game's own videos are 2000, so the top "
-                 "setting asks more of the console than anything retail did.")
+                 "background looks. Best is beyond anything retail did.")
         self.screen_var = tk.StringVar()
         self.screen_box = disc.add_row("Picture", ttk.Combobox(
             disc, textvariable=self.screen_var, state="readonly",
@@ -149,8 +151,20 @@ class SetupTab(ttk.Frame):
         self.demos_var.trace_add("write", lambda *_: self.push())
         self.folder_var.trace_add("write", lambda *_: self.push())
 
+        menus_box = Section(page, "Title screen")
+        menus_box.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
+        self.art = PathRow(
+            menus_box, "Logo", kind="open", filetypes=PICTURE_TYPES,
+            others=[("Use deluxe logo", menus.logo_art)],
+            hint="Empty leaves the default logo.", on_change=self.push)
+        self.title_var = tk.StringVar()
+        menus_box.add_row("Subtitle", ttk.Entry(
+            menus_box, textvariable=self.title_var),
+            hint="%d characters at most." % menus.LIMIT)
+        self.title_var.trace_add("write", lambda *_: self.keep_title())
+
         tools_box = Section(page, "Tools")
-        tools_box.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
+        tools_box.grid(row=3, column=0, sticky="ew", pady=(PAD, 0))
         tools_box.rowconfigure(0, weight=1)
         self.tree = ttk.Treeview(tools_box, columns=("state", "what", "path"),
                                  show="tree headings", height=8,
@@ -190,6 +204,8 @@ class SetupTab(ttk.Frame):
         self.iso.set(s.out_iso)
         self.jobs_var.set(s.jobs)
         self.wide_var.set(s.wide_mix)
+        self.title_var.set(s.title_text)
+        self.art.set(s.title_art)
         self.demos_var.set(s.drop_demos)
         self.folder_var.set(s.disc_folder)
         self.suggested_folder = iso.folder_beside(s.out_iso)
@@ -219,6 +235,10 @@ class SetupTab(ttk.Frame):
         except (tk.TclError, ValueError):
             pass
         s.wide_mix = bool(self.wide_var.get())
+        # Tidied on the way out rather than as it is typed, so a space between two
+        # words survives long enough to type the second one.
+        s.title_text = menus.tidy(self.title_var.get())
+        s.title_art = self.art.get()
         s.drop_demos = bool(self.demos_var.get())
         s.disc_folder = bool(self.folder_var.get())
         self.folder.enable(s.disc_folder)
@@ -249,6 +269,18 @@ class SetupTab(ttk.Frame):
         self.show_background(s.black_background)
         s.save()
         self.app.settings_changed()
+
+    def keep_title(self):
+        """Hold the box to what the texture can hold, and save what is in it.
+
+        Cutting it here rather than refusing the edit means pasting something too long
+        keeps the front of it, which is the part someone meant.
+        """
+        text = self.title_var.get()
+        if len(text) > menus.LIMIT:
+            self.title_var.set(text[:menus.LIMIT])
+            return
+        self.push()
 
     def show_background(self, black):
         """Nothing about the videos matters when the background is black."""

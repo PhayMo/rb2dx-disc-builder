@@ -8,7 +8,10 @@ a = Analysis(
     ["launch.py"],
     pathex=[],
     binaries=[],
-    datas=[("venues", "venues"), ("README.md", ".")],
+    # The logo art the title screen text is drawn under, and the font it is drawn
+    # in, both inside the package where menus looks for them.
+    datas=[("venues", "venues"), ("README.md", "."),
+           ("rb2dx/title", "rb2dx/title")],
     hiddenimports=["pycdlib", "numpy", "certifi"],
     hookspath=[],
     hooksconfig={},

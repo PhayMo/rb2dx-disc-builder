@@ -52,6 +52,15 @@ DEFAULTS = {
     # fills the screen and crops what will not go. Only the song's own video is
     # asked about - a venue clip is wallpaper and always fills the screen.
     "song_video": "whole",
+    # Words drawn under the logo on the title screen and the main menu - the name of
+    # a setlist, usually. Empty leaves both logos as the release drew them. See menus.
+    "title_text": "",
+    # A picture to use as that logo instead of the Deluxe one, transparent around the
+    # art. Empty uses the one the builder ships with.
+    "title_art": "",
+    # What colour the line you are on is in the menus, as #rrggbb. Parked, and nothing
+    # in the builder sets it: see menus for why.
+    "menu_highlight": "",
     "ceiling_bytes": RETAIL_ISO_BYTES,
     # Carry the vocal and the backing in two channels rather than one, keeping
     # the stereo that averaging them into one throws away. Costs two channels of
@@ -180,6 +189,9 @@ class Settings:
         self.screen = merged["screen"] if merged["screen"] in SCREENS else "4:3"
         self.song_video = (merged["song_video"]
                            if merged["song_video"] in SONG_VIDEO_FITS else "whole")
+        self.title_text = " ".join(str(merged["title_text"] or "").split())
+        self.title_art = str(merged["title_art"] or "").strip().strip('"')
+        self.menu_highlight = str(merged["menu_highlight"] or "").strip()
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         # Named stereo_vocals in the first release that had it, before it took in
         # the backing as well.
@@ -222,6 +234,9 @@ class Settings:
                 "background": self.background,
                 "screen": self.screen,
                 "song_video": self.song_video,
+                "title_text": self.title_text,
+                "title_art": self.title_art,
+                "menu_highlight": self.menu_highlight,
                 "ceiling_bytes": self.ceiling_bytes,
                 "wide_mix": self.wide_mix,
                 "jobs": self.jobs,
