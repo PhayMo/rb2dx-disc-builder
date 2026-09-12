@@ -11,6 +11,7 @@ The pipeline turns folders of Clone Hero songs into a bootable PS2 ISO:
   art       convert album art to the PS2's paletted texture format
   dta       write and compile the song list the game reads
   menus     redraw the title screen and the main menu it heads
+  modifiers switch chosen modifiers on as the game starts
   ark       inject everything into the game's archive and repack it
   iso       write the bootable disc image
   verify    read every shipped file back out of the archive and compare

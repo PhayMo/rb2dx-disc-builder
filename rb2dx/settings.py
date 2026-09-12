@@ -19,6 +19,8 @@ import json
 import os
 import sys
 
+from . import modifiers as modifiers_mod
+
 APP_NAME = "rb2dxbuilder"
 
 # The stock Deluxe release is a little over 7.6 GiB. Staying at or under it is
@@ -61,6 +63,10 @@ DEFAULTS = {
     # What colour the line you are on is in the menus, as #rrggbb. Parked, and nothing
     # in the builder sets it: see menus for why.
     "menu_highlight": "",
+    # Which modifiers the disc has switched on by the time you reach the menu, by the
+    # names the game knows them by. A PS2 forgets them between boots, so this is the
+    # only way one of them is ever on without being ticked by hand. See modifiers.
+    "modifiers": [],
     "ceiling_bytes": RETAIL_ISO_BYTES,
     # Carry the vocal and the backing in two channels rather than one, keeping
     # the stereo that averaging them into one throws away. Costs two channels of
@@ -192,6 +198,9 @@ class Settings:
         self.title_text = " ".join(str(merged["title_text"] or "").split())
         self.title_art = str(merged["title_art"] or "").strip().strip('"')
         self.menu_highlight = str(merged["menu_highlight"] or "").strip()
+        # Only the ones a disc can really switch on, in the order the game's own screen
+        # lists them, so a settings file naming anything else quietly drops it.
+        self.modifiers = modifiers_mod.known(merged["modifiers"])
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         # Named stereo_vocals in the first release that had it, before it took in
         # the backing as well.
@@ -237,6 +246,7 @@ class Settings:
                 "title_text": self.title_text,
                 "title_art": self.title_art,
                 "menu_highlight": self.menu_highlight,
+                "modifiers": list(self.modifiers),
                 "ceiling_bytes": self.ceiling_bytes,
                 "wide_mix": self.wide_mix,
                 "jobs": self.jobs,

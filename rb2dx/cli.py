@@ -14,8 +14,8 @@ import argparse
 import os
 import sys
 
-from . import (iso, library, menus, plan as planner, settings as settings_mod,
-               tools)
+from . import (iso, library, menus, modifiers, plan as planner,
+               settings as settings_mod, tools)
 from .errors import BuildError
 from .settings import Settings, SettingsError
 
@@ -38,6 +38,23 @@ def _picture(given):
                          "this program ships, --title-art= to leave the release's own "
                          "logo alone." % wanted)
     return os.path.abspath(wanted) if wanted else ""
+
+
+def _modifiers(given):
+    """What --modifiers was asking for, by short name or by the game's own name."""
+    words = [w.strip().lower() for w in (given or "").replace(",", " ").split()]
+    if words in ([], ["none"]):
+        return []
+    chosen = []
+    for word in words:
+        name = word if word.startswith("mod_") else "mod_" + word
+        if name not in modifiers.BY_NAME:
+            raise SystemExit(
+                "There is no modifier called %s on this disc. The ones there are:\n%s"
+                % (word, "\n".join("  %-24s %s" % (mod.name[4:], mod.label)
+                                   for mod in modifiers.CATALOGUE)))
+        chosen.append(name)
+    return modifiers.known(chosen)
 
 
 def cmd_setup(args):
@@ -76,6 +93,9 @@ def cmd_setup(args):
         changed = True
     if args.title_art is not None:
         s.title_art = _picture(args.title_art)
+        changed = True
+    if args.modifiers is not None:
+        s.modifiers = _modifiers(args.modifiers)
         changed = True
     if args.wide_mix:
         s.wide_mix = args.wide_mix == "yes"
@@ -155,6 +175,9 @@ def cmd_setup(args):
                                      else "the release's own, untouched")))
         print("  title text   %s" % ("\"%s\", under both logos" % s.title_text
                                      if s.title_text else "none"))
+        print("  modifiers    %s"
+              % (", ".join(modifiers.label(name) for name in s.modifiers)
+                 or "none on at the start"))
         print("  disc ceiling %s" % human(s.ceiling_bytes))
         print("  parallel     %d songs at a time" % s.jobs)
         print("  base songs   %s" % ("left out" if s.drop_demos else "kept"))
@@ -228,6 +251,8 @@ def cmd_build(args):
         s.title_text = menus.tidy(args.title_text)
     if args.title_art is not None:
         s.title_art = _picture(args.title_art)
+    if args.modifiers is not None:
+        s.modifiers = _modifiers(args.modifiers)
     if args.jobs:
         s.jobs = args.jobs
 
@@ -361,6 +386,11 @@ def main(argv=None):
                    help="the logo drawn on both screens: a picture of your own, "
                         "see-through around the art, or \"deluxe\" for the one this "
                         "program ships. --title-art= leaves the release's own alone")
+    p.add_argument("--modifiers", metavar="NAMES",
+                   help="modifiers the disc has switched on every time it starts, "
+                        "such as \"nofail,autokick\". A PS2 forgets them between "
+                        "boots, which is what this is for. Any name at all lists "
+                        "them; --modifiers= or --modifiers none for a plain disc")
     p.add_argument("--wide-mix", choices=("yes", "no"),
                    help="carry the vocal and the backing in stereo rather than "
                         "one channel each, for two channels more per song")
@@ -397,6 +427,7 @@ def main(argv=None):
     p.add_argument("--video", type=int, metavar="KBPS")
     p.add_argument("--title-text", metavar="WORDS")
     p.add_argument("--title-art", metavar="PICTURE")
+    p.add_argument("--modifiers", metavar="NAMES")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--no-iso", action="store_true")
     p.add_argument("--no-verify", action="store_true")

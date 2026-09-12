@@ -12,6 +12,7 @@ from tkinter import messagebox, ttk
 from .. import plan as planner, pipeline, settings as settings_mod, tools
 from ..settings import Settings
 from .build_tab import BuildTab
+from .modifiers_tab import ModifiersTab
 from .common import PAD
 from .results_tab import ResultsTab
 from .setup_tab import SetupTab
@@ -54,10 +55,12 @@ class App(tk.Tk):
         self.book = ttk.Notebook(self)
         self.book.pack(fill="both", expand=True, padx=PAD, pady=(PAD, 0))
         self.setup_tab = SetupTab(self.book, self)
+        self.modifiers_tab = ModifiersTab(self.book, self)
         self.songs_tab = SongsTab(self.book, self)
         self.build_tab = BuildTab(self.book, self)
         self.results_tab = ResultsTab(self.book, self)
         self.book.add(self.setup_tab, text="  Setup  ")
+        self.book.add(self.modifiers_tab, text="  Modifiers  ")
         self.book.add(self.songs_tab, text="  Songs  ")
         self.book.add(self.build_tab, text="  Build  ")
         self.book.add(self.results_tab, text="  Results  ")
@@ -74,8 +77,9 @@ class App(tk.Tk):
         """Called from the build thread."""
         self.events.put((kind, payload))
 
-    def select_tab(self, index):
-        self.book.select(index)
+    def select_tab(self, page):
+        """Show one page, named by the page itself rather than by where it sits."""
+        self.book.select(page)
 
     def settings_changed(self):
         todo = self.settings.problems()
@@ -149,7 +153,7 @@ class App(tk.Tk):
             tab.write("Finished.", "good")
             tab.finished()
             self.results_tab.show(payload)
-            self.select_tab(3)
+            self.select_tab(self.results_tab)
         elif kind == "failed":
             tab.write(payload, "bad")
             tab.finished()

@@ -117,4 +117,4 @@ class ResultsTab(ttk.Frame):
                                [s.path for s, _, _ in self.result.problems])
         self.retry_btn.state(["disabled"])
         self.app.songs_tab.scan(False)
-        self.app.select_tab(1)
+        self.app.select_tab(self.app.songs_tab)

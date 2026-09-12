@@ -65,6 +65,33 @@ name of a setlist, a date. Up to 42 letters, and a long one is drawn smaller rat
 than running off the edge. With nothing typed, the picture gets those rows to itself
 and comes out larger still.
 
+## Modifiers
+
+Deluxe's modifiers are things you turn on for a session: No Fail, Breakneck Speed,
+Auto Kick, Autoplay, and a dozen more Deluxe added on top of the game's own. A
+PlayStation 2 forgets every one of them the moment it is switched off, so anyone who
+always plays with one has to go and tick it again on each boot.
+
+![The Modifiers page](docs/modifiers-page.png)
+
+The **Modifiers** page decides which of them the disc starts with switched on, every
+time. They stay ordinary modifiers: the Modifiers screen in the game can turn any of
+them off again for the rest of the session.
+
+Twelve are offered, each with the game's own words for what it does. Deluxe registers
+eighteen on this console, but six of them do nothing on a PS2 however they are switched
+on - Auto Kick and Freestyle Drums ask the engine for methods this build has not got,
+Sync Difficulty Speeds is only read by code compiled for the other consoles, and nothing
+in the release reads Midi Drum Bass Kick Fix, No SELECT in Practice or Awesomeness
+Detection at all - so rather than offer a switch that changes nothing, they are left off
+the page. Auto Kick is the one worth knowing about: it still stops the game saving while
+it is on, so it costs scores and gives nothing back.
+
+Some of them argue. Black Background and Performance Mode switch each other off,
+Jukebox Mode brings Autoplay and Performance Mode on with it, and Autoplay, Auto Kick,
+Unlock All Songs and Jukebox Mode stop the game saving anything while they are on. Tick
+a pair like that and the page says what the disc will actually start with.
+
 ## Running it
 
 Unzip the release and run `RB2DX Disc Builder.exe`. The first start takes a good
@@ -73,9 +100,10 @@ appears. From the source, `run.bat`, or `python -m rb2dx gui`.
 
 ![The Setup page](docs/setup-page.png)
 
-Work through the pages in turn: **Setup** for your folders and tools, **Songs**
-to scan and tick what you want, **Build**, then **Results**. Songs that cannot be
-converted are set aside with a reason rather than stopping the build.
+Work through the pages in turn: **Setup** for your folders and tools, **Modifiers**
+if you want any of them on from the start, **Songs** to scan and tick what you want,
+**Build**, then **Results**. Songs that cannot be converted are set aside with a
+reason rather than stopping the build.
 
 Burn the ISO to a DVD-R, or run it from a hard drive loader.
 
@@ -105,6 +133,8 @@ Everything the interface does is available without it:
     python -m rb2dx setup --title-text "Beatles Edition"
     python -m rb2dx setup --title-art deluxe
     python -m rb2dx setup --title-art "D:\Art\my logo.png"
+    python -m rb2dx setup --modifiers nofail,autokick
+    python -m rb2dx setup --modifiers none
     python -m rb2dx setup --wide-mix yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan

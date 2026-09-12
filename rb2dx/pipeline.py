@@ -17,7 +17,8 @@ import threading
 import time
 import traceback
 
-from . import art, ark, charts, dta, iso, menus, plan, verify, video, vgs
+from . import (art, ark, charts, dta, iso, menus, modifiers, plan, verify, video,
+               vgs)
 from . import audio as audio_stage
 from .errors import BuildError, Cancelled
 
@@ -374,6 +375,10 @@ class Pipeline:
                 self._check()
                 self.on_stage("Dressing the menus")
                 menus.dress(settings, log=self.log)
+            if settings.modifiers:
+                self._check()
+                self.on_stage("Switching the modifiers on")
+                modifiers.apply(settings, log=self.log)
             ark.pack(settings, log=self.log)
             result.shipped = shipped
 
