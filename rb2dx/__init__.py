@@ -12,6 +12,7 @@ The pipeline turns folders of Clone Hero songs into a bootable PS2 ISO:
   dta       write and compile the song list the game reads
   menus     redraw the title screen and the main menu it heads
   modifiers switch chosen modifiers on as the game starts
+  prodrums  draw a cymbal where a chart says cymbal
   ark       inject everything into the game's archive and repack it
   iso       write the bootable disc image
   verify    read every shipped file back out of the archive and compare
@@ -19,4 +20,4 @@ The pipeline turns folders of Clone Hero songs into a bootable PS2 ISO:
 Windows only: Onyx runs Magma, the official Rock Band compiler, internally.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
