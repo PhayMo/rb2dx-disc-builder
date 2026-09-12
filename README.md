@@ -92,6 +92,25 @@ Jukebox Mode brings Autoplay and Performance Mode on with it, and Autoplay, Auto
 Unlock All Songs and Jukebox Mode stop the game saving anything while they are on. Tick
 a pair like that and the page says what the disc will actually start with.
 
+## Experimental pro drums
+
+A chart made for pro drums says which of its yellow, blue and green notes are cymbals
+rather than toms, and the PlayStation 2 game throws that away: both come out as the
+same coloured bar. *Cymbal notes* on the Setup page draws them apart.
+
+A cymbal becomes a round plate lying flat on the deck, silver around the rim with a
+raised bell in the middle, and a tom keeps the bar it has always had. Both keep their
+shape inside overdrive, where the game otherwise draws one white bar for everything.
+Nothing else changes: a chart that says nothing about cymbals plays exactly as before,
+and the kick and the red lane are left alone, red having no cymbal to tell apart. Both
+kits are done, left-handed as well as right.
+
+It is the only setting here that changes the game's own program rather than what is on
+the disc beside it. The routine that picks a note's shape had no way to ask about
+cymbals, so 44 of its instructions are rewritten to ask, and the disc carries that
+`SLUS_218.00` instead of the release's. The folder you pointed at is never written to:
+the patched copy is made in the work folder, fresh every build.
+
 ## Running it
 
 Unzip the release and run `RB2DX Disc Builder.exe`. The first start takes a good
@@ -136,6 +155,7 @@ Everything the interface does is available without it:
     python -m rb2dx setup --modifiers nofail,autokick
     python -m rb2dx setup --modifiers none
     python -m rb2dx setup --wide-mix yes
+    python -m rb2dx setup --pro-drums yes
     python -m rb2dx setup --disc-folder yes
     python -m rb2dx scan
     python -m rb2dx plan

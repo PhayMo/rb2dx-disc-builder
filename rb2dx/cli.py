@@ -100,6 +100,9 @@ def cmd_setup(args):
     if args.wide_mix:
         s.wide_mix = args.wide_mix == "yes"
         changed = True
+    if args.pro_drums:
+        s.prodrums = args.pro_drums == "yes"
+        changed = True
     if args.jobs:
         s.jobs = args.jobs
         changed = True
@@ -171,6 +174,8 @@ def cmd_setup(args):
                                      else "kept whole, black where they do not "
                                           "reach"))
         print("  vocal/backing%s" % (" stereo" if s.wide_mix else " mono"))
+        print("  pro drums    %s" % ("cymbal notes drawn as cymbals (experimental)"
+                                     if s.prodrums else "as the game draws them"))
         print("  title logo   %s" % (s.title_art or ("the Deluxe one" if s.title_text
                                      else "the release's own, untouched")))
         print("  title text   %s" % ("\"%s\", under both logos" % s.title_text
@@ -394,6 +399,10 @@ def main(argv=None):
     p.add_argument("--wide-mix", choices=("yes", "no"),
                    help="carry the vocal and the backing in stereo rather than "
                         "one channel each, for two channels more per song")
+    p.add_argument("--pro-drums", choices=("yes", "no"),
+                   help="experimental: draw the cymbal notes of a chart that "
+                        "marks them as cymbals rather than as pads. The only "
+                        "setting that changes the game's own program")
     p.add_argument("--jobs", type=int, metavar="N")
     p.add_argument("--ceiling", type=float, metavar="GB")
     p.add_argument("--demo-songs", choices=("keep", "drop"),

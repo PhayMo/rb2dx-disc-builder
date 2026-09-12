@@ -151,8 +151,17 @@ class SetupTab(ttk.Frame):
         self.demos_var.trace_add("write", lambda *_: self.push())
         self.folder_var.trace_add("write", lambda *_: self.push())
 
+        drums = Section(page, "Experimental pro drums")
+        drums.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
+        self.cymbals_var = tk.BooleanVar(value=False)
+        drums.add_row("Cymbal notes", ttk.Checkbutton(
+            drums, text="Draw them as cymbals rather than pads",
+            variable=self.cymbals_var),
+            hint="Experimental pro drums.")
+        self.cymbals_var.trace_add("write", lambda *_: self.push())
+
         menus_box = Section(page, "Title screen")
-        menus_box.grid(row=2, column=0, sticky="ew", pady=(PAD, 0))
+        menus_box.grid(row=3, column=0, sticky="ew", pady=(PAD, 0))
         self.art = PathRow(
             menus_box, "Logo", kind="open", filetypes=PICTURE_TYPES,
             others=[("Use deluxe logo", menus.logo_art)],
@@ -164,7 +173,7 @@ class SetupTab(ttk.Frame):
         self.title_var.trace_add("write", lambda *_: self.keep_title())
 
         tools_box = Section(page, "Tools")
-        tools_box.grid(row=3, column=0, sticky="ew", pady=(PAD, 0))
+        tools_box.grid(row=4, column=0, sticky="ew", pady=(PAD, 0))
         tools_box.rowconfigure(0, weight=1)
         self.tree = ttk.Treeview(tools_box, columns=("state", "what", "path"),
                                  show="tree headings", height=8,
@@ -204,6 +213,7 @@ class SetupTab(ttk.Frame):
         self.iso.set(s.out_iso)
         self.jobs_var.set(s.jobs)
         self.wide_var.set(s.wide_mix)
+        self.cymbals_var.set(s.prodrums)
         self.title_var.set(s.title_text)
         self.art.set(s.title_art)
         self.demos_var.set(s.drop_demos)
@@ -235,6 +245,7 @@ class SetupTab(ttk.Frame):
         except (tk.TclError, ValueError):
             pass
         s.wide_mix = bool(self.wide_var.get())
+        s.prodrums = bool(self.cymbals_var.get())
         # Tidied on the way out rather than as it is typed, so a space between two
         # words survives long enough to type the second one.
         s.title_text = menus.tidy(self.title_var.get())
