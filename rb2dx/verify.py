@@ -42,7 +42,9 @@ def sha_stream(fp, length, chunk=1 << 20):
 
 
 def find_source(settings, name):
-    for base in (settings.ark_out, settings.base_game):
+    # Where a patched executable goes is looked in first, since that is the copy the disc was
+    # built from and the game's own is left as it is.
+    for base in (settings.elf_out, settings.ark_out, settings.base_game):
         for dirpath, _, files in os.walk(base):
             if name in files:
                 return os.path.join(dirpath, name)

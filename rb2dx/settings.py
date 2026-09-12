@@ -67,6 +67,10 @@ DEFAULTS = {
     # names the game knows them by. A PS2 forgets them between boots, so this is the
     # only way one of them is ever on without being ticked by hand. See modifiers.
     "modifiers": [],
+    # Draw a cymbal where a chart says cymbal, instead of drawing every drum note the
+    # same. Still experimental, and the one setting that rewrites part of the game's own
+    # executable, so it is off unless it is asked for. See prodrums.
+    "prodrums": False,
     "ceiling_bytes": RETAIL_ISO_BYTES,
     # Carry the vocal and the backing in two channels rather than one, keeping
     # the stereo that averaging them into one throws away. Costs two channels of
@@ -201,6 +205,7 @@ class Settings:
         # Only the ones a disc can really switch on, in the order the game's own screen
         # lists them, so a settings file naming anything else quietly drops it.
         self.modifiers = modifiers_mod.known(merged["modifiers"])
+        self.prodrums = bool(merged["prodrums"])
         self.ceiling_bytes = int(merged["ceiling_bytes"])
         # Named stereo_vocals in the first release that had it, before it took in
         # the backing as well.
@@ -247,6 +252,7 @@ class Settings:
                 "title_art": self.title_art,
                 "menu_highlight": self.menu_highlight,
                 "modifiers": list(self.modifiers),
+                "prodrums": self.prodrums,
                 "ceiling_bytes": self.ceiling_bytes,
                 "wide_mix": self.wide_mix,
                 "jobs": self.jobs,
@@ -345,6 +351,11 @@ class Settings:
         return self.work_dir("gen_out")
 
     @property
+    def elf_out(self):
+        """Where a patched executable goes, since the game's own folder is never written to."""
+        return self.work_dir("elf")
+
+    @property
     def dta_dir(self):
         return self.work_dir("dta")
 
@@ -367,6 +378,16 @@ class Settings:
     # ---- base game files ---------------------------------------------------
 
     def boot_elf(self):
+        """The executable the disc is built from: a patched copy if this build made one.
+
+        A patched copy keeps the name the game's own has, since SYSTEM.CNF names it and the
+        console looks for exactly that name.
+        """
+        base = self.base_elf()
+        patched = os.path.join(self.elf_out, os.path.basename(base))
+        return patched if os.path.exists(patched) else base
+
+    def base_elf(self):
         """The game executable, whose name the ISO and SYSTEM.CNF must match."""
         for name in sorted(os.listdir(self.base_game)):
             if name.upper().startswith("SLUS") or name.upper().startswith("SLES"):
@@ -410,6 +431,13 @@ class Settings:
                     check()
                 except SettingsError as exc:
                     out.append(str(exc))
+            if self.prodrums:
+                # The cymbals rewrite part of the executable, and that happens at the end
+                # of a build that takes hours, so a release it cannot rewrite is said now.
+                from . import prodrums
+                unrewritable = prodrums.trouble(self)
+                if unrewritable:
+                    out.append(unrewritable)
         if not [lib for lib in self.libraries if lib.enabled]:
             out.append("Add at least one folder of songs to build from.")
         if not self.work:

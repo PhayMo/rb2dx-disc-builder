@@ -4,4 +4,3 @@ build/
 dist/
 *.iso
 tests/
-rb2dx/prodrums.py

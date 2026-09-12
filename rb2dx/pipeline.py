@@ -17,8 +17,8 @@ import threading
 import time
 import traceback
 
-from . import (art, ark, charts, dta, iso, menus, modifiers, plan, verify, video,
-               vgs)
+from . import (art, ark, charts, dta, iso, menus, modifiers, plan, prodrums, verify,
+               video, vgs)
 from . import audio as audio_stage
 from .errors import BuildError, Cancelled
 
@@ -379,6 +379,13 @@ class Pipeline:
                 self._check()
                 self.on_stage("Switching the modifiers on")
                 modifiers.apply(settings, log=self.log)
+            # Before the cymbals are drawn or not drawn: the cymbals are the one thing that
+            # patches the executable, and the patched copy outlives the build that made it.
+            prodrums.clear(settings)
+            if settings.prodrums:
+                self._check()
+                self.on_stage("Drawing the cymbals")
+                prodrums.apply(settings, log=self.log)
             ark.pack(settings, log=self.log)
             result.shipped = shipped
 
