@@ -110,13 +110,17 @@ COLOURS = ("yellow", "blue", "green", "red")
 # A gem widget draws two meshes, the gem and a glow behind it, which is how the game's own
 # set_widget_glow can drop a track to one mesh for a distant view. A cymbal draws only the
 # first: the glow is a flat bright square of a quad that gets away with it behind a bar,
-# because the bar covers it, but round a round plate it shows its corners.
+# because the bar covers it, but round a round plate it shows its corners. The glow is still
+# read here, though, because the bright colour on this track comes off the strip it draws
+# from rather than off the dull block a gem draws from.
 PAD = "prism_gem_drum_%s.mesh"
+GLOW = "prism_glow_drum_%s.mesh"
 CYMBAL = "cymbal_gem_%s.mesh"
 WIDGET = "cymbal_gem_%s.wid"
 # The white gem every lane is drawn with inside an overdrive phrase, which the game calls the
 # style gem, and the cymbal built on it. One serves all three lanes, since the white gem does.
 STYLE = "prism_gem_drum_style.mesh"
+STYLE_GLOW = "prism_glow_drum_style.mesh"
 STYLE_CYMBAL = "cymbal_gem_style.mesh"
 STYLE_WIDGET = "cymbal_gem_style.wid"
 
@@ -127,30 +131,53 @@ STYLE_WIDGET = "cymbal_gem_style.wid"
 # as a curve rather than a polygon, and no more, since every one of them is another vertex on
 # every cymbal on the track. Tilt leans it back, which is left at none: flat is how it reads.
 #
-# Sits is how far off the deck the lowest point of it stands, and it stands further off than
-# looks necessary because the deck is domed across its width. The kick's bar hugs that dome and
-# tops out at 0.16 over the middle of the track against -0.12 at the edges, while a plate this
-# wide spans a whole lane, so the front and back of its rim came within five thousandths of the
-# bar and were drawn sunken into it - on the yellow and blue lanes, which is where the dome is
-# at its highest, and not on green, which is where it has fallen away. Standing the rim clear
-# of it costs a gap underneath that cannot be told at the angle a track is watched from.
+# Sits is how far off the deck the lowest point of it stands, and it stands a good way off
+# because of what a kick draws. The deck is domed across its width and the kick's bar hugs that
+# dome, cresting at 0.164 over the middle of the track against -0.115 at the edges, and the
+# flash drawn with it reaches higher still, 0.285 over the same middle. A plate this wide spans
+# a whole lane, so with its rim any lower than those the front and back of it went behind the
+# bar and the white border round it was swallowed whenever a cymbal and a kick were played
+# together - on the yellow and blue lanes, where the dome is at its highest, and not on green,
+# where it has fallen away, which is exactly how it read on the console. Standing clear of both
+# costs a gap underneath that cannot be told at the angle a track is watched from.
+#
+# Border is how much of the way in from the edge is drawn in white rather than in the lane's
+# colour, measured as a fraction of the half way across. It grows inwards: the edge of the plate
+# stays where it is and the white eats into the colour, so widening it leaves the size and the
+# profile of the cymbal exactly as they were.
 SHAPE = {"across": 2.50, "along": 2.50, "thick": 0.13, "bell": 0.54,
-         "tilt": 0.0, "sits": 0.10, "points": 12}
+         "tilt": 0.0, "sits": 0.32, "points": 12, "border": 0.26}
 
 # The rings a cymbal is built from, from the middle outwards: how far across it that ring
 # sits as a fraction of the whole, how high it stands, and which part of the gem sheet it
-# reads. The bell and the body read the lane's colour and the rim reads the chrome beside it
-# on the sheet, which is where a cymbal's silver edge comes from without anything new drawn.
+# reads. The bell and the body read the core of the bright strip the lane's glow is drawn from
+# and the ring where the colour ends reads a shade off it, so a plate is the lane's colour at
+# full strength with the last of it falling away - which is how a cymbal reads on the consoles
+# that have them. Outside those is the white border, as wide as the shape asks for.
+#
+# Two rings sit in the same place, one reading the colour and one the white. That is what keeps
+# the border crisp: a reading is carried across a triangle from corner to corner, so a triangle
+# with the colour at one end and the white at the other would be painted with everything lying
+# between the two on the sheet - the whole row of other lanes' strips - smeared round the edge
+# of every cymbal. With the two rings apart, no triangle spans the join and the white starts
+# where the colour stops.
 #
 # There are as few of them as the shape can be told by, because a console draws one of these
-# for every cymbal on the track at once: three rings and a small flat top come to 36 vertices
-# and 58 triangles in three strips, against a pad gem's 17 and 18 in six. The underside is not
-# there at all, since a plate lying on the deck is only ever seen from above.
+# for every cymbal on the track at once: they come to 60 vertices and 82 triangles in four
+# strips, against a pad gem's 17 and 18 in six. The underside is not there at all, since a
+# plate lying on the deck is only ever seen from above.
 def _rings(shape):
     thick, bell = shape["thick"], shape["bell"]
-    return ((0.15, thick + bell, "top middle"),
-            (0.36, thick + bell * 0.22, "top middle"),
-            (1.00, thick * 0.45, "top outer"))
+    body, edge = thick + bell * 0.22, thick * 0.45
+    starts = 1.0 - shape["border"]
+    # The border stands where the slope from the body to the edge has got to by the time it
+    # reaches it, so how wide the border is made does not change the shape of the plate.
+    seam = body + (edge - body) * (starts - 0.36) / (1.00 - 0.36)
+    return ((0.15, thick + bell, "glow middle"),
+            (0.36, body, "glow middle"),
+            (starts, seam, "glow rim"),
+            (starts, seam, "white rim"),
+            (1.00, edge, "white rim"))
 
 
 # A lane can be given a shape of its own, which is how candidates are compared on one disc.
@@ -209,9 +236,10 @@ LEFTY = ("#define DRUM_LEFTY", "(use_char_tex TRUE)")
 
 
 def _gems():
-    """Every cymbal to be built: the gem it is built on, its name, and whose shape it takes."""
-    return ([(PAD % colour, CYMBAL % colour, colour) for colour in COLOURS]
-            + [(STYLE, STYLE_CYMBAL, "style")])
+    """Every cymbal to be built: the gem it is built on, the glow behind that gem it takes its
+    colour off, its name, and whose shape it takes."""
+    return ([(PAD % colour, GLOW % colour, CYMBAL % colour, colour) for colour in COLOURS]
+            + [(STYLE, STYLE_GLOW, STYLE_CYMBAL, "style")])
 
 
 def _widgets():
@@ -277,18 +305,49 @@ def _about(points):
     return mid, far
 
 
-def _anchors(pad):
-    """The pad vertices a cymbal reads the gem sheet through, chosen by where they sit.
+# How far down the strip a glow reads the light in it sits. A glow runs from black, up through
+# the lane's colour at its brightest, and back to black, so the light is the middle of what it
+# reads: the core of the band a shade under half way down, and the shoulder beside the core a
+# shade under that. Both are measured off the strip in the sheet on the disc.
+CORE, SHOULDER = 0.48, 0.44
 
-    A lane's colour is a patch of one sheet every gem shares, and the patch is a gradient:
-    the middle of a gem reads one side of it and the outside of the gem the other, its top
-    one end and its underside the other. So each vertex of a cymbal takes its reading from
-    the pad vertex playing the same part, which is what makes a cymbal the colour of its own
-    lane, shaded the way its own lane is shaded, with nothing new drawn anywhere.
+
+def _lit(pad, glow, along):
+    """A reading of the sheet taken off the bright strip a lane's glow is drawn from.
+
+    The block a gem reads is dull - the yellow lane's is an olive, three quarters as light as
+    the white beside it and nowhere near the yellow seen on the track - because a gem is lit by
+    the glow drawn behind it rather than by the block itself. A cymbal has no glow of its own,
+    the quad being square where a cymbal is round, so it takes the light the only other way it
+    can: by reading the strip the glow would have drawn, which holds the lane's colour at full
+    strength. Across, that is the middle of the strip; down, `along` of the way through it.
+
+    Everything but the reading is a pad vertex's, so the bones a cymbal belongs to and the
+    tangent its light is worked out along stay the ones that work on a gem.
+    """
+    ups = [struct.unpack_from("<2f", tail, 0) for _pos, _normal, tail in glow]
+    us, vs = [u for u, _v in ups], [v for _u, v in ups]
+    tail = max(pad, key=lambda v: v[0][2])[2]
+    return struct.pack("<2f", (min(us) + max(us)) / 2,
+                       min(vs) + (max(vs) - min(vs)) * along) + tail[8:]
+
+
+def _anchors(pad, glow, white):
+    """The readings of the gem sheet a cymbal is drawn through.
+
+    Three of them come off strips of the sheet the glows are drawn from, which is where colour
+    is kept at full strength: two off the strip behind the lane's own gem and one off the white
+    the overdrive gem's glow is drawn in, which is the white the border round a cymbal is drawn
+    in too. The rest come off the pad vertices playing the same part as the cymbal vertex
+    reading them, chosen by where they sit. Nothing new is drawn anywhere either way: every
+    reading lands on the sheet the whole track already shares.
     """
     tall = max(v[0][2] for v in pad) / 2
     middle = [v for v in pad if abs(v[0][0]) < 0.1] or pad
-    return {"top middle": max(middle, key=lambda v: v[0][2])[2],
+    return {"glow middle": _lit(pad, glow, CORE),
+            "glow rim": _lit(pad, glow, SHOULDER),
+            "white rim": _lit(pad, white, CORE),
+            "top middle": max(middle, key=lambda v: v[0][2])[2],
             "bottom middle": min(middle, key=lambda v: v[0][2])[2],
             "top outer": max((v for v in pad if v[0][2] > tall),
                              key=lambda v: abs(v[0][0]))[2],
@@ -337,6 +396,10 @@ def _round(shape):
     strips = [[top[0]] + [top[(1 + step // 2) if step % 2 == 0 else -(1 + step // 2)]
                           for step in range(points - 1)]]
     for at in range(len(rings) - 1):
+        # Two rings in the same place are a join in the readings rather than a surface, so
+        # there is nothing to draw between them.
+        if rings[at][:2] == rings[at + 1][:2]:
+            continue
         above, below = at * points, (at + 1) * points
         strip = []
         for turn in range(points + 1):
@@ -471,14 +534,14 @@ def _head(body, was, name, points):
     return bytes(head)
 
 
-def _cymbal(body, was, name, shape=SHAPE):
+def _cymbal(body, glow, white, was, name, shape=SHAPE):
     """A round cymbal gem, on the header, the material and the sheet of one pad gem."""
     verts, strips = _round(shape)
     verts = _place(verts, shape)
     if not _facing(verts, _triangles(strips)):
         raise BuildError("A cymbal came out with its strips the wrong way about, which would "
                          "leave holes in it or nothing at all where it should be.")
-    sheet = _anchors(_read(body))
+    sheet = _anchors(_read(body), _read(glow), _read(white))
     return (_head(body, was, name, verts)
             + _geometry([(pos, normal, sheet[role]) for pos, normal, role in verts], strips))
 
@@ -503,13 +566,15 @@ def _scene(settings, rel, log=None):
     wanted = []
     pokes, splices = [], []
     for track in drums:
-        for was, name, shape in _gems():
-            if not track.holds(was):
-                raise BuildError("A drum track in %s does not hold %s, so there is nothing "
-                                 "to make a cymbal out of." % (rel, was))
+        for was, glow, name, shape in _gems():
+            for held in (was, glow, STYLE_GLOW):
+                if not track.holds(held):
+                    raise BuildError("A drum track in %s does not hold %s, so there is nothing "
+                                     "to make a cymbal out of." % (rel, held))
             if track.holds(name):
                 raise BuildError("A drum track in %s already holds %s." % (rel, name))
-            body = _cymbal(track.body(was), was, name, SHAPES.get(shape, SHAPE))
+            body = _cymbal(track.body(was), track.body(glow), track.body(STYLE_GLOW),
+                           was, name, SHAPES.get(shape, SHAPE))
             track.insert(was, "Mesh", name, body)
             wanted.append((before.index(track), name, body))
         mine, theirs = track.changes()
