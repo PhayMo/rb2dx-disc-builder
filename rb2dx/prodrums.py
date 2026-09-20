@@ -146,7 +146,7 @@ STYLE_WIDGET = "cymbal_gem_style.wid"
 # stays where it is and the white eats into the colour, so widening it leaves the size and the
 # profile of the cymbal exactly as they were.
 SHAPE = {"across": 2.50, "along": 2.50, "thick": 0.13, "bell": 0.54,
-         "tilt": 0.0, "sits": 0.32, "points": 12, "border": 0.26}
+         "tilt": 0.0, "sits": 0.32, "points": 12, "border": 0.13}
 
 # The rings a cymbal is built from, from the middle outwards: how far across it that ring
 # sits as a fraction of the whole, how high it stands, and which part of the gem sheet it
@@ -163,9 +163,10 @@ SHAPE = {"across": 2.50, "along": 2.50, "thick": 0.13, "bell": 0.54,
 # where the colour stops.
 #
 # There are as few of them as the shape can be told by, because a console draws one of these
-# for every cymbal on the track at once: they come to 60 vertices and 82 triangles in four
-# strips, against a pad gem's 17 and 18 in six. The underside is not there at all, since a
-# plate lying on the deck is only ever seen from above.
+# for every cymbal on the track at once: they come to 60 vertices and 82 triangles, handed over
+# in seven runs of fourteen and under, against a pad gem's 17 and 18 in six runs and the kick
+# gem's 68 and 60 in twelve. The underside is not there at all, since a plate lying on the deck
+# is only ever seen from above.
 def _rings(shape):
     thick, bell = shape["thick"], shape["bell"]
     body, edge = thick + bell * 0.22, thick * 0.45
@@ -182,6 +183,32 @@ def _rings(shape):
 
 # A lane can be given a shape of its own, which is how candidates are compared on one disc.
 SHAPES = {}
+
+# The longest run of vertices anything in this game hands the hardware at once. Nothing it ships
+# goes over fourteen: a bar gem is six runs of nine and under, and the kick's 68 vertices go over
+# in twelve runs rather than as one long ribbon, which is what a console's vector unit takes a
+# batch at a time. A cymbal was handing over runs of 26, which an emulator draws without
+# complaint, and the disc built from the wider border crashed on the console it was made for. So
+# a band is cut into runs of this length, each carrying on from the last two vertices of the run
+# before it so that no triangle between them is lost.
+BATCH = 14
+
+
+def _batched(strip):
+    """One strip cut into the runs a console is handed, longest first.
+
+    Each run starts an even number of steps into the one before it. A strip turns every third
+    vertex into another triangle and flips which way round it winds as it goes, so a run that
+    started on an odd step would draw its triangles the other way about and be culled - which
+    the check on the finished shape would catch, but only after the fact.
+    """
+    if len(strip) <= BATCH:
+        return [strip]
+    runs, at = [], 0
+    while at < len(strip) - 2:
+        runs.append(strip[at:at + BATCH])
+        at += BATCH - 2
+    return runs
 
 # Every vertex in one of these scenes is painted white, and the four ones that say so are
 # what makes a vertex easy to find without knowing the rest of the format. A vertex is its
@@ -393,8 +420,8 @@ def _round(shape):
     # The flat top: crossing from one side of the ring to the other and back turns a ring of
     # points into one strip, two triangles short of the number of points.
     top = list(range(points))
-    strips = [[top[0]] + [top[(1 + step // 2) if step % 2 == 0 else -(1 + step // 2)]
-                          for step in range(points - 1)]]
+    strips = _batched([top[0]] + [top[(1 + step // 2) if step % 2 == 0 else -(1 + step // 2)]
+                                  for step in range(points - 1)])
     for at in range(len(rings) - 1):
         # Two rings in the same place are a join in the readings rather than a surface, so
         # there is nothing to draw between them.
@@ -404,7 +431,7 @@ def _round(shape):
         strip = []
         for turn in range(points + 1):
             strip += [above + turn % points, below + turn % points]
-        strips.append(strip)
+        strips += _batched(strip)
     return verts, strips
 
 
@@ -707,6 +734,11 @@ ORDINARY, STAR, UNISON, TOM = 0, 8, 16, 40
 # A note says which lanes it is played on as one bit per lane, counted the way the gem table
 # numbers them: the kick, the snare, and then the three that can hold a cymbal. Neither the
 # kick nor the snare is ever a cymbal, so the chart is never asked about them.
+#
+# Only those three bits are read, and everything above them is thrown away rather than walked.
+# The byte is a byte and a lane is a lane: whatever the game keeps in the top three bits of it,
+# a loop that walks every bit set would go on to ask the chart about lanes five, six and seven,
+# and the chart would answer out of whatever sits past the end of its own lanes.
 FIRST_CYMBAL_LANE = 2
 
 # The block that picks a row, and the word after it, which everything falls out to with the
@@ -776,7 +808,8 @@ both:
     addu  t0, t0, s5
     lbu   s2, 0xc(t0)              ; the lanes this note is played on
     srl   s2, s2, %(first)d        ; the kick and the snare hold no cymbal, so drop them
-    addiu s3, zero, %(first)d      ; and start from the first lane that can
+    andi  s2, s2, %(cymbals)d      ; and nothing above the lanes that can is a lane at all
+    addiu s3, zero, %(first)d      ; start from the first lane that can
 lane:
     andi  v0, s2, 1
     beqz  v0, next                 ; this lane is not one of the ones played
@@ -804,6 +837,7 @@ take:
        "back": STAR - UNISON,
        "along": TOM - ORDINARY,
        "first": FIRST_CYMBAL_LANE,
+       "cymbals": (1 << len(LANES)) - 1,
        "out": PICK_OUT}
 
 
