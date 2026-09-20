@@ -15,6 +15,7 @@ with, because the two disagreeing is what hangs the console.
 
 import json
 import locale
+import math
 import os
 import re
 import shutil
@@ -311,9 +312,11 @@ def build(settings, sid, source_dir, log=None):
                        "offers to play" % ", ".join(sorted(missing)))
 
     lead = record_lead(settings, sid,
-                       measure_pad(os.path.join(proj, "notes.mid"), raw))
-    _say(log, "onyx moved the chart %.3f s, so the audio gets that much more "
-              "silence in front of it" % (lead / 1000.0))
+                       measure_pad(os.path.join(proj, "notes.mid"), raw,
+                                   os.path.join(source_dir, "notes.mid"),
+                                   chart_delay(source_dir)))
+    _say(log, "the chart sits %.3f s further in than its own delay asks for, so "
+              "the audio gets that much silence in front of it" % (lead / 1000.0))
 
     w_src = os.path.join(con_song, "gen", con_id + "_weights.bin")
     if os.path.exists(w_src):
@@ -349,21 +352,65 @@ def _say(log, text):
 # starting near zero used to do, by up to three seconds. It is measured rather
 # than assumed: the same chart before and after Onyx's build, and the difference
 # between where their first notes land.
-MAX_PAD_SECONDS = 4.0
+#
+# A song.ini delay is the other half of the same sum. It holds the notes back
+# from the audio by that many milliseconds, and Onyx's import folds it into the
+# chart - but rounded up to a whole second, to leave the bars where they were.
+# The fraction it rounds away is silence the audio is meant to carry, and a rip
+# whose delay is just over a whole second gets held back by nearly a second more
+# than it asked for. Guitar Hero Live rips are charted from zero and lined up
+# entirely by their delay, so every one of them was out by that fraction.
+#
+# The ceiling covers both together: three seconds of Onyx's own padding and the
+# best part of another from the rounding.
+MAX_PAD_SECONDS = 5.0
 
 
-def measure_pad(source_mid, built_mid):
-    """Seconds of silence Onyx's build put in front of a chart."""
+def chart_delay(source_dir):
+    """Milliseconds the rip's song.ini holds its notes back from the audio by."""
+    from . import library
+
+    try:
+        ini = library.read_ini(os.path.join(source_dir, "song.ini"))
+    except OSError:
+        return 0.0
+    try:
+        return float(ini.get("delay") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def measure_pad(source_mid, built_mid, rip_mid="", delay_ms=0.0):
+    """Seconds of silence the mix needs in front of it to match a built chart.
+
+    source_mid is the chart as Onyx imported it, built_mid the chart Onyx built
+    from it, and rip_mid the chart the song folder came with, before the import
+    touched it. Where that last one can be read the delay Onyx applied is
+    measured; where it cannot - a .chart rip has no MIDI to compare - the
+    rounding it applies is taken as read.
+    """
     before = midfix.first_note_seconds(source_mid)
     after = midfix.first_note_seconds(built_mid)
     if before is None or after is None:
         raise BuildError("chart has no playable notes on any instrument")
     pad = after - before
+
+    delay = (delay_ms or 0.0) / 1000.0
+    held = None
+    if rip_mid and os.path.exists(rip_mid):
+        was = midfix.first_note_seconds(rip_mid)
+        if was is not None:
+            held = before - was
+    if held is None:
+        held = math.ceil(delay) if delay > 0 else 0.0
+    pad += held - delay
+
     if not -0.001 <= pad <= MAX_PAD_SECONDS:
         raise BuildError(
-            "Onyx moved this chart %.3f s, which is outside anything this has "
-            "been proven against, so the audio cannot be lined up with it. Its "
-            "first note went from %.3f s to %.3f s." % (pad, before, after))
+            "Onyx moved this chart %.3f s against a delay of %.3f s, which is "
+            "outside anything this has been proven against, so the audio cannot "
+            "be lined up with it. Its first note went from %.3f s to %.3f s."
+            % (after - before, delay, before, after))
     return max(pad, 0.0)
 
 
