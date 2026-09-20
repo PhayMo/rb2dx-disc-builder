@@ -6,12 +6,14 @@ Its gem table has a row for a tom beside the row for an ordinary note, and its e
 asks a widget for both, so the two have always been able to look different. They never do,
 because both rows name the same gem.
 
-So the cymbals get a gem of their own. Three of them, one per lane that can hold a cymbal,
-each a round plate lying flat on the deck with a bell raised out of the middle and a silver
-rim round the edge, which is what a cymbal looks like from behind a kit where a pad looks
-like a bar. The toms keep the gem they always had, which means overdrive, the fills and the
-big rock ending are left exactly as the game shipped them, and no gem sheet is touched, so no
-other instrument's gems change in the slightest.
+So the cymbals get a gem of their own. One per gem a cymbal lane is ever drawn with, which
+comes to four - the three a right-handed kit uses, and the red one a left-handed kit draws the
+green lane with, that kit mirroring the track by naming the gem from the far side of it. Each
+is a round plate lying flat on the deck with a bell raised out of the middle and a silver rim
+round the edge, which is what a cymbal looks like from behind a kit where a pad looks like a
+bar. The toms keep the gem they always had, which means overdrive, the fills and the big rock
+ending are left exactly as the game shipped them, and no gem sheet is touched, so no other
+instrument's gems change in the slightest.
 
 The geometry is written rather than borrowed, because a pad gem is a wedge with corners on
 it and no amount of squashing takes the corners off. Everything else about a cymbal comes
@@ -23,11 +25,12 @@ anywhere.
 
 The four parts of it:
 
-  the drum scene   gains four cymbals, each built on the header of the gem it stands in for
-                   and owning its own geometry: one per cymbal lane, and one more built on
-                   the white gem an overdrive phrase is drawn with. That scene is not the
-                   file of that name: the track panel carries the whole drum track inside
-                   it, and the console never opens the tracksystem_drum.milo_ps2 beside it
+  the drum scene   gains five cymbals, each built on the header of the gem it stands in for
+                   and owning its own geometry: one per gem a cymbal lane is drawn with in
+                   either kit, and one more built on the white gem an overdrive phrase is
+                   drawn with. That scene is not the file of that name: the track panel
+                   carries the whole drum track inside it, and the console never opens the
+                   tracksystem_drum.milo_ps2 beside it
 
   the track panel  gains a few lines that run as a song finishes loading. They make a
                    TrackWidget per cymbal lane by copying that lane's pad widget - which
@@ -36,7 +39,9 @@ The four parts of it:
                    on its own, leaving off the glow a pad draws behind itself
 
   the gem table    sends the ordinary row of each cymbal lane to the new widget, leaving
-                   the tom row where it was, and its unison row to the white cymbal
+                   the tom row where it was, and its unison row to the white cymbal - in
+                   each kit's own rows, and in the left-handed kit's by which gem a row
+                   names rather than which lane it is
 
   the executable   gains one block of rewritten instructions, because the table alone
                    cannot fix an overdrive phrase. In a phrase every note draws the star
@@ -45,7 +50,10 @@ The four parts of it:
                    row, which on drums names the very same gem as the star row and so says
                    nothing. So the check that picks between those two rows is rewritten to
                    pick on whether the chart calls the note a cymbal instead, on drum tracks
-                   only, leaving every other instrument's unison phrases exactly as they were
+                   only, leaving every other instrument's unison phrases exactly as they
+                   were. The same block asks the chart about every lane a note is played on
+                   rather than only the lowest, which is what the game did and what had a
+                   crash drawn as a pad whenever a kick or the snare was played under it
 
 Lego Rock Band's Ultimate mod does all of this on the consoles it runs on, and reading it is
 what settled the shape of this: a widget's meshes are an array, new widgets are made with new
@@ -85,9 +93,20 @@ SCENES = ("track/gen/trackpanel.milo_ps2", "track/gen/trackpanel_hth.milo_ps2")
 PANEL = "ui/gen/track_panel.dtb"
 TABLE = "config/gen/track_graphics.dtb"
 
-# The lanes that can hold a cymbal. The red lane is the snare and never holds one, so it
-# is left alone in both kits.
+# The lanes that can hold a cymbal. The red lane is the snare and never holds one, and neither
+# does the kick, so both are left alone in both kits.
+#
+# A lane is a lane of the chart, which the console numbers the same way round whichever kit is
+# being played: the snare is the snare and the green lane is the green lane. What changes is the
+# gem each one is drawn with. A left-handed kit mirrors the track by naming the gem from the far
+# side of it - the chart's green notes are drawn with the red gem, at the red end, the track's
+# own painted lanes staying where they are - so its rows have to be edited by which gem they
+# name rather than by which lane they are, or the cymbals land on the snare.
 LANES = ("yellow", "blue", "green")
+LEFTY_GEMS = {"yellow": "blue", "blue": "yellow", "green": "red"}
+# Every gem a cymbal is built on: the three a right-handed kit draws them with, and the red one a
+# left-handed kit draws the green lane with.
+COLOURS = ("yellow", "blue", "green", "red")
 # A gem widget draws two meshes, the gem and a glow behind it, which is how the game's own
 # set_widget_glow can drop a track to one mesh for a distant view. A cymbal draws only the
 # first: the glow is a flat bright square of a quad that gets away with it behind a bar,
@@ -107,8 +126,16 @@ STYLE_WIDGET = "cymbal_gem_style.wid"
 # is the whole point of it. Points is how many go round each ring: enough that the edge reads
 # as a curve rather than a polygon, and no more, since every one of them is another vertex on
 # every cymbal on the track. Tilt leans it back, which is left at none: flat is how it reads.
+#
+# Sits is how far off the deck the lowest point of it stands, and it stands further off than
+# looks necessary because the deck is domed across its width. The kick's bar hugs that dome and
+# tops out at 0.16 over the middle of the track against -0.12 at the edges, while a plate this
+# wide spans a whole lane, so the front and back of its rim came within five thousandths of the
+# bar and were drawn sunken into it - on the yellow and blue lanes, which is where the dome is
+# at its highest, and not on green, which is where it has fallen away. Standing the rim clear
+# of it costs a gap underneath that cannot be told at the angle a track is watched from.
 SHAPE = {"across": 2.50, "along": 2.50, "thick": 0.13, "bell": 0.54,
-         "tilt": 0.0, "sits": 0.03, "points": 12}
+         "tilt": 0.0, "sits": 0.10, "points": 12}
 
 # The rings a cymbal is built from, from the middle outwards: how far across it that ring
 # sits as a fraction of the whole, how high it stands, and which part of the gem sheet it
@@ -183,13 +210,14 @@ LEFTY = ("#define DRUM_LEFTY", "(use_char_tex TRUE)")
 
 def _gems():
     """Every cymbal to be built: the gem it is built on, its name, and whose shape it takes."""
-    return ([(PAD % lane, CYMBAL % lane, lane) for lane in LANES]
+    return ([(PAD % colour, CYMBAL % colour, colour) for colour in COLOURS]
             + [(STYLE, STYLE_CYMBAL, "style")])
 
 
 def _widgets():
     """Every widget the panel makes: its name, the widget it copies, and the mesh it draws."""
-    return ([(WIDGET % lane, "drum_%s.wid" % lane, CYMBAL % lane) for lane in LANES]
+    return ([(WIDGET % colour, "drum_%s.wid" % colour, CYMBAL % colour)
+             for colour in COLOURS]
             + [(STYLE_WIDGET, "drum_star.wid", STYLE_CYMBAL)])
 
 
@@ -611,6 +639,11 @@ def _edit(settings, rel, edits, what, within=None):
 ROWS = 0x69B0A0
 ORDINARY, STAR, UNISON, TOM = 0, 8, 16, 40
 
+# A note says which lanes it is played on as one bit per lane, counted the way the gem table
+# numbers them: the kick, the snare, and then the three that can hold a cymbal. Neither the
+# kick nor the snare is ever a cymbal, so the chart is never asked about them.
+FIRST_CYMBAL_LANE = 2
+
 # The block that picks a row, and the word after it, which everything falls out to with the
 # chosen name in hand. Nothing in the game jumps into the middle of the block - it is entered
 # in one place and left in one - which is what makes it safe to write over as a whole. There is
@@ -633,8 +666,22 @@ PICK_WAS = "59a5daa19223bc0c606c7de1ec27489ab8764a0c"
 # whether this is a unison phrase, so guitar and bass are left exactly as they were.
 #
 # The two paths meet, which is the point: each arrives with the row it would have drawn from and
-# how far along to move for a tom, and one shared piece of code asks the question once. Three
-# values have to live across calls, so they are kept in the registers a call has to preserve.
+# how far along to move for a tom, and one shared piece of code asks the question. Everything
+# that has to survive a call is kept in the registers a call has to preserve: the row, how far a
+# tom moves from it, the answer so far, the lanes still to ask about, and which lane that is.
+#
+# Which lane to ask the chart about is the part worth reading twice. A note is one note however
+# many lanes are played on it, so a crash and the kick under it are one note lighting two lanes,
+# and the table names one gem for a note rather than one per lane. The game asked about the
+# lowest lane a note lights and let that answer stand for the whole of it, which is harmless
+# when every row names the same gem and ruinous now: a crash is nearly always played over a kick
+# or the snare, both of which sit below it and neither of which is ever a cymbal, so the answer
+# came back tom and a green cymbal was drawn as a pad for most of a song.
+#
+# So the two lanes that cannot hold a cymbal are skipped and every one that can is asked about,
+# and the note draws cymbals if any lane it lights is one. A tom played together with a cymbal
+# draws a cymbal too, which cannot be helped from here - one gem is named for the note, not one
+# per lane - and it is the rarer way round to be wrong by some distance.
 PICK_CODE = """
     daddu a0, s2, zero
     jal   0x3d5da0                 ; is this note an overdrive one at all
@@ -657,28 +704,28 @@ pads:
     addiu s1, zero, %(along)d      ; a tom moves along to the tom row
     daddu s7, zero, zero
 both:
-    lw    a0, 4(s2)
     jal   0x3db720                 ; is this a drum track
-    nop
+    lw    a0, 4(s2)
     beqz  v0, pick
-    lw    t1, 0(s3)
-    addu  t1, t1, s5
-    lbu   t0, 0xc(t1)              ; the lanes this note lights
-    daddu a3, zero, zero
+    lw    t0, 0(s3)
+    addu  t0, t0, s5
+    lbu   s2, 0xc(t0)              ; the lanes this note is played on
+    srl   s2, s2, %(first)d        ; the kick and the snare hold no cymbal, so drop them
+    addiu s3, zero, %(first)d      ; and start from the first lane that can
 lane:
-    andi  v0, t0, 1
-    bnez  v0, ask                  ; the lowest lane it lights is the one to ask about
-    srl   t0, t0, 1
-    bnez  t0, lane                 ; more lanes left to look at
-    addiu a3, a3, 1
-    addiu a3, zero, -1             ; it lights none, which the game calls no lane
-ask:
-    addiu a0, fp, 0x45f0
-    lw    a0, 0(a0)
-    daddu a1, a3, zero
+    andi  v0, s2, 1
+    beqz  v0, next                 ; this lane is not one of the ones played
+    srl   s2, s2, 1
+    lw    a0, 0x45f0(fp)           ; the chart, which the game keeps to hand here
+    daddu a1, s3, zero
+    daddu a3, s3, zero             ; the lane, which the chart is asked for twice over
     jal   0x1a3758                 ; does the chart call that lane a tom here
     daddu a2, s6, zero
-    daddu s7, v0, zero
+    beqz  v0, pick                 ; one cymbal in the note and the note draws cymbals
+    daddu s7, v0, zero             ; every lane so far says tom, and that stands if all do
+next:
+    bnez  s2, lane                 ; more lanes left to ask about
+    addiu s3, s3, 1
 pick:
     beql  s7, zero, take
     daddu s1, zero, zero           ; not a tom, so stay on the row we came in with
@@ -691,6 +738,7 @@ take:
        "unison": mips.halves(ROWS + UNISON)[1],
        "back": STAR - UNISON,
        "along": TOM - ORDINARY,
+       "first": FIRST_CYMBAL_LANE,
        "out": PICK_OUT}
 
 
@@ -756,15 +804,16 @@ def _block():
     return SCRIPT % {"mesh": CYMBAL % LANES[0], "lanes": made}
 
 
-def _unison(lane):
+def _unison(colour):
     """The edit sending one lane's unison row to the white cymbal.
 
     A lane's unison row is found by the rows around it rather than on its own, because every
-    lane of the kit holds the same one word for word. The tom row in front of it is the lane's
-    own, so the three together belong to that lane and nothing else.
+    lane of the kit holds the same one word for word. The tom row in front of it names the gem
+    that lane is drawn with, so the three together belong to that lane and nothing else.
     """
-    return ("(tom drum_%s.wid) (star drum_star.wid) (unison drum_star.wid)" % lane,
-            "(tom drum_%s.wid)\n  (star drum_star.wid)\n  (unison %s)" % (lane, STYLE_WIDGET))
+    return ("(tom drum_%s.wid) (star drum_star.wid) (unison drum_star.wid)" % colour,
+            "(tom drum_%s.wid)\n  (star drum_star.wid)\n  (unison %s)"
+            % (colour, STYLE_WIDGET))
 
 
 def apply(settings, log=None):
@@ -782,15 +831,13 @@ def apply(settings, log=None):
           "the gem table", within=RIGHTY)
     _say(log, "  right-handed kit: %d lanes draw a cymbal for a cymbal, in overdrive too"
               % len(LANES))
-    # The left-handed kit ships without a tom row on its green lane, so that row is added
-    # as well or every cymbal in the lane would be a tom. It goes in before the unison rows
-    # are moved, since a lane's unison row is found by the tom row in front of it.
+    # The same three lanes of the chart, named by the gem this kit draws each of them with,
+    # which is the gem from the far side of the track. The snare's row is the one naming the
+    # green gem here, and it is left alone.
+    mirrored = [LEFTY_GEMS[lane] for lane in LANES]
     _edit(settings, TABLE,
-          (("(normal drum_green.wid)",
-            "(normal %s)\n  (tom drum_green.wid)" % (WIDGET % "green")),
-           ("(normal drum_blue.wid)", "(normal %s)" % (WIDGET % "blue")),
-           ("(normal drum_yellow.wid)", "(normal %s)" % (WIDGET % "yellow")))
-          + tuple(_unison(lane) for lane in LANES),
+          tuple(("(normal drum_%s.wid)" % colour, "(normal %s)" % (WIDGET % colour))
+                for colour in mirrored) + tuple(_unison(colour) for colour in mirrored),
           "the gem table", within=LEFTY)
-    _say(log, "  left-handed kit: the same three lanes, and the green lane gains the tom "
-              "row it shipped without")
+    _say(log, "  left-handed kit: the same three lanes of the chart, drawn with the %s gems "
+              "this kit mirrors them onto" % ", ".join(mirrored))
