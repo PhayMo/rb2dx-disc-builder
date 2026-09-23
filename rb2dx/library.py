@@ -325,7 +325,8 @@ def scan(settings, rescan=False, progress=None, log=None):
                         tier=tier,
                         has_art=any(a in files for a in ART_NAMES),
                         stems=sorted(stems), parts=parts,
-                        video=settings_mod.own_video(files))
+                        video=(settings_mod.own_video(files)
+                               or settings_mod.own_still(files)))
             if unchanged and known.get("seconds"):
                 song.seconds = known["seconds"]
             else:

@@ -33,7 +33,8 @@ import subprocess
 from . import proc
 from .errors import BuildError
 from .library import read_ini
-from .settings import VIDEO_EXT, own_video, videos_in
+from .settings import (STILL_EXT, STILL_KBPS, VIDEO_EXT, own_still, own_video,
+                       videos_in)
 
 # Retail video: 400x304 MPEG-2, 29.97 fps, constant bit rate. Retail runs 2000
 # kbit/s behind a song and 2500 for its intro movie, and nothing above that;
@@ -171,11 +172,22 @@ def data_rate(rate, channels):
     return int(ADPCM_BLOCK * rate / SAMPLES_PER_BLOCK) * channels + 100
 
 
+def is_still(path):
+    """Whether a background is a picture rather than a clip."""
+    return bool(path) and os.path.splitext(path)[1].lower() in STILL_EXT
+
+
 def song_video(source_dir):
-    """The video a song folder brought with it, or "" if it has none."""
+    """The video or picture a song folder brought with it, or "" if it has none.
+
+    A clip wins where a folder holds both. Charts that carry a moving background
+    often keep a frame of it beside the file as a thumbnail, so the picture there
+    is the still of the video rather than a background of its own.
+    """
     if not source_dir or not os.path.isdir(source_dir):
         return ""
-    name = own_video(os.listdir(source_dir))
+    files = os.listdir(source_dir)
+    name = own_video(files) or own_still(files)
     return os.path.join(source_dir, name) if name else ""
 
 
@@ -257,6 +269,9 @@ def still_share(settings, src, start=0.0):
     Measured small and only over the opening, which is enough to tell a six-frame
     animation from shot footage and costs a fraction of a second.
     """
+    if is_still(src):
+        # Nothing to measure: a picture repeats every frame but the first.
+        return 1.0
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error"]
     if start:
         cmd += ["-ss", "%.3f" % start]
@@ -297,6 +312,11 @@ def content_box(settings, src):
     letterboxed the rest of the time.
     """
     if not src or not os.path.exists(src):
+        return None
+    if is_still(src):
+        # A picture is read as it comes. There is only one frame to go on, so a
+        # dark photograph and a letterboxed one look alike, and cropping the wrong
+        # one would take the picture off the disc rather than a border.
         return None
     try:
         st = os.stat(src)
@@ -435,7 +455,7 @@ def extra_lead(settings, sid):
 
 
 def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
-                 steady=False, whole=False, trim=None):
+                 steady=False, whole=False, trim=None, still=False, kbps=0):
     """Encode one clip to the retail MPEG-2 shape, looping to length.
 
     start moves the clip that far along and delay puts that much extra black in
@@ -447,12 +467,19 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
     detail for keeping that picture still. whole keeps all of the picture rather
     than filling the frame with it, and trim is black the clip came with; see
     shape_filter for both.
+
+    still is for a src that is a picture. It is framed and steadied like any other
+    background, but there is nothing to loop up to length - the one frame is held
+    for the whole song - nothing to move along, and no black to wait behind: the
+    picture is there from the first frame rather than appearing once the count-in
+    has passed. kbps overrides what the setting asks for, which is how a picture
+    is sent at a fraction of a clip's rate.
     """
-    kbps = settings.encode_kbps
+    kbps = kbps or settings.encode_kbps
     cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
     if src:
         vf = shape_filter(settings, whole, trim)
-        if start:
+        if start and not still:
             # Moved after the clip is already looping, rather than by seeking the
             # file: a seek is applied again on every pass, which throws the front
             # of the clip away each time round and shortens the loop. Dropping the
@@ -462,9 +489,12 @@ def encode_video(settings, src, dst, seconds, start=0.0, delay=0.0,
             vf += ",trim=start=%.3f,setpts=PTS-STARTPTS" % start
         if steady:
             vf += "," + SOFTEN
-        vf += ",tpad=start_duration=%s:start_mode=add:color=black" % (LEAD_IN
-                                                                     + delay)
-        cmd += ["-stream_loop", "-1", "-i", src, "-vf", vf]
+        if still:
+            cmd += ["-loop", "1", "-framerate", FPS, "-i", src, "-vf", vf]
+        else:
+            vf += ",tpad=start_duration=%s:start_mode=add:color=black" % (
+                LEAD_IN + delay)
+            cmd += ["-stream_loop", "-1", "-i", src, "-vf", vf]
     else:
         cmd += ["-f", "lavfi", "-i", "color=c=black:s=%dx%d:r=%s"
                 % (WIDTH, HEIGHT, FPS)]
@@ -525,8 +555,11 @@ def watch(settings, clip, dst, clip_at, stems=(), song_at=0.0,
     empty and the song is heard on its own.
     """
     heard = has_sound(settings, clip)
-    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
-           "-stream_loop", "-1", "-i", clip]
+    cmd = [settings.tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y"]
+    # A picture is held rather than looped, the same way the disc's own encode
+    # holds it, so what the window shows is what the game will show.
+    cmd += (["-loop", "1", "-framerate", FPS, "-i", clip] if is_still(clip)
+            else ["-stream_loop", "-1", "-i", clip])
     for path in stems:
         cmd += ["-i", path]
 
@@ -678,13 +711,18 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
         venue, own = "", False
     else:
         venue, own = choose_video(sid, venue_dir, source_dir)
-    shift, told_by = shift_for(settings, source_dir) if own else (0.0, "")
+    # A picture has no beginning to line up with the music, so a nudge on the
+    # folder and song.ini's video_start_time have nothing to say about one.
+    still = is_still(venue)
+    shift, told_by = shift_for(settings, source_dir) \
+        if own and not still else (0.0, "")
     # Only a song's own video is ever kept whole, so only that one is worth reading:
     # a venue clip fills the frame, and black it carries is cropped away with
     # everything else that falls outside.
     whole, trim = framing(settings, venue) if own else (False, None)
     start, delay = offsets(settings, venue, shift, vid_secs)
     waited = extra_lead(settings, sid)
+    kbps = STILL_KBPS if still else settings.encode_kbps
     what = "black" if not venue else os.path.basename(venue)
 
     if log:
@@ -704,15 +742,18 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
         if own:
             shaped = frame_note(settings, venue, trim) if whole else ""
             moved += ", " + (shaped or "filling the %s frame" % settings.screen)
-        log("%s: %s%s" % ("the song's own video" if own else "background", what,
-                          moved))
+        if own:
+            whose = "the song's own picture" if still else "the song's own video"
+        else:
+            whose = "background"
+        log("%s: %s%s" % (whose, what, moved))
 
     m2v, pss = outputs(settings, sid)
     # The song's audio lives in the .pss alongside the video, so a re-mixed song
     # has to come back through here even though nothing about its background has
     # changed. Encoding the clip again is the expensive half and there is no need
     # for it when the clip that is already staged was made from the same things.
-    want = {"clip": os.path.basename(venue), "kbps": settings.encode_kbps,
+    want = {"clip": os.path.basename(venue), "kbps": kbps,
             "seconds": round(vid_secs, 2), "start": round(start, 3),
             "delay": round(delay + waited, 3), "shape": SHAPE,
             "screen": settings.screen}
@@ -728,13 +769,17 @@ def build(settings, sid, venue_dir, source_dir="", log=None):
     else:
         share = still_share(settings, venue, start) if venue else 0.0
         steady = share >= STILL_SHARE
-        if steady:
+        if still:
+            note = " (one picture, held for the whole song at %d kbit/s)" % kbps
+            if log:
+                log("video:%s" % note)
+        elif steady:
             note = " (repeats %d%% of its frames, so it is held steady)" % (
                 share * 100)
             if log:
                 log("video:%s" % note)
         r = encode_video(settings, venue, m2v, vid_secs, start, delay + waited,
-                         steady, whole=whole, trim=trim)
+                         steady, whole=whole, trim=trim, still=still, kbps=kbps)
         if r.returncode != 0 or not os.path.exists(m2v) \
                 or os.path.getsize(m2v) == 0:
             return False, "could not encode the background video: %s" % (

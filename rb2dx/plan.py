@@ -12,7 +12,8 @@ disc: this only prices them and says how much room is left.
 import json
 import os
 
-from . import library
+from . import library, video
+from .settings import STILL_KBPS
 
 # Audio is 4-bit ADPCM at 22050 Hz per channel, and the preview clip is a fixed
 # 30 seconds of stereo on top.
@@ -35,12 +36,24 @@ def channels(settings, song):
     return library.channels_for(song.stems, song.parts, settings.wide_mix)
 
 
+def kbps_for(settings, song):
+    """The rate this song's background will be encoded at.
+
+    A picture held behind a song is sent at a fraction of a clip's rate, so
+    pricing one at the video rate would keep songs off a disc with room for them.
+    """
+    if settings.black_background:
+        return settings.encode_kbps
+    return STILL_KBPS if video.is_still(getattr(song, "video", "")) \
+        else settings.encode_kbps
+
+
 def estimate(settings, song):
     """What a song will weigh on disc, before it has been built."""
     audio = (song.seconds * channels(settings, song) + PREVIEW_SECONDS * 2) \
         * ADPCM_BYTES_PER_SEC_PER_CH
-    video = song.seconds * settings.encode_kbps * 1000 / 8.0
-    return audio + video
+    picture = song.seconds * kbps_for(settings, song) * 1000 / 8.0
+    return audio + picture
 
 
 def built_at(settings, sid):

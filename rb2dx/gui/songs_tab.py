@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import library, plan as planner, settings as settings_mod
+from .. import library, plan as planner, settings as settings_mod, video
 from . import video_dialog
 from .common import PAD, Section, UsageBar, human, mmss, reveal
 
@@ -274,6 +274,8 @@ class SongsTab(ttk.Frame):
         """
         if not song.video or self.app.settings.black_background:
             return ""
+        if video.is_still(song.video):
+            return "own picture"
         nudge = self.app.settings.nudge(song.path)
         return "own %+.2fs" % nudge if nudge else "own"
 
@@ -318,6 +320,15 @@ class SongsTab(ttk.Frame):
                 % (song.label,
                    ", ".join("video%s" % e
                              for e in settings_mod.SONG_VIDEO_EXTS[:4])))
+            return
+        if video.is_still(song.video):
+            messagebox.showinfo(
+                "A picture, not a video",
+                "%s brought %s, which is a picture rather than a clip. It is "
+                "held behind the song from start to finish, so there is nothing "
+                "to line up.\n\nFor a background that moves, put a video file in "
+                "the folder as well: a clip is played in place of the picture."
+                % (song.label, song.video))
             return
         video_dialog.VideoDialog(self, self.app, song)
 

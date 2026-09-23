@@ -177,8 +177,10 @@ class Pipeline:
             except OSError:
                 sig["video"] = [os.path.basename(own), 0, 0]
             # Moving that video is the same kind of change, and re-encoding the
-            # clip is all it takes to answer.
-            shift = video.shift_for(self.settings, song.path)[0]
+            # clip is all it takes to answer. A picture cannot be moved, so a
+            # nudge left on such a folder is not a reason to build it again.
+            shift = 0.0 if video.is_still(own) else \
+                video.shift_for(self.settings, song.path)[0]
             if shift:
                 sig["nudge"] = round(shift, 3)
             # How such a video is put in the frame, so a song staged under an older

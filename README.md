@@ -39,6 +39,12 @@ moved a little either way to suit; `song.ini`'s `video_start_time` is honoured
 where you have not. Or set *Background* to *Black* and have none at all, which
 fits far more songs.
 
+A `background.png`, `.jpg` or `.jpeg` works as well, for a chart whose background
+does not move: the picture is held behind the song from beginning to end. It is
+framed like any clip, and costs a sixth of one, since a still spends no bitrate on
+movement. A folder holding both plays the clip - a picture beside a video is
+usually a frame of it rather than a background of its own.
+
 Black a video came with is cut off before it is framed, so a picture boxed inside
 a file of another shape fills the screen rather than sitting in the middle of it.
 Where the picture itself is a different shape from the screen there is no answer

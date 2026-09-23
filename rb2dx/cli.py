@@ -303,6 +303,12 @@ def cmd_nudge(args):
               "and there is nothing to line up. Put a file named video.mp4 in "
               "there to give it one." % folder)
         return 1
+    if video.is_still(clip):
+        print("%s is a picture, not a clip: it is held behind the song from "
+              "start to finish, so there is nothing to line up. A video file in "
+              "the same folder is played in place of it."
+              % os.path.basename(clip))
+        return 1
     length = video.clip_seconds(s, clip)
     song_secs = max([audio.probe_audio(s, p)[1]
                      for p in audio.stems_in(folder).values()] or [0.0])

@@ -106,6 +106,13 @@ VIDEO_EXT = (".mp4", ".webm", ".mkv", ".avi", ".mov", ".m4v", ".mpg", ".mpeg")
 SONG_VIDEO_NAMES = ("video", "background")
 SONG_VIDEO_EXTS = VIDEO_EXT + (".ogv",)
 
+# A folder that brought no clip may still have brought a picture, under those same
+# names: background.png is what a chart carries when what plays behind it does not
+# move. The disc has no way to show a picture on its own - the game reads a song's
+# audio out of a video stream - so one is sent as a stream of its own frame, held
+# for as long as the song lasts.
+STILL_EXT = (".png", ".jpg", ".jpeg")
+
 BACKGROUNDS = ("venues", "black")
 
 SCREENS = ("4:3", "16:9")
@@ -116,6 +123,12 @@ SONG_VIDEO_FITS = ("whole", "fill")
 # audio out of a video stream and finds none without one, but black at this rate
 # costs about a fiftieth of a real clip and looks no different for being cheap.
 BLACK_KBPS = 150
+
+# A picture that never changes needs more than black, since every so often the
+# stream has to carry the picture itself, and nothing like a real clip, whose
+# bitrate goes on movement a still has none of. At this rate the frames that do
+# carry it have plenty to spend, and a song costs a sixth of what a video does.
+STILL_KBPS = 400
 
 
 def _folder_key(path):
@@ -136,6 +149,19 @@ def own_video(files):
     for name in sorted(files):
         stem, ext = os.path.splitext(name)
         if stem.lower() in SONG_VIDEO_NAMES and ext.lower() in SONG_VIDEO_EXTS:
+            return name
+    return ""
+
+
+def own_still(files):
+    """Which of these is a song's own still background, or "" if none is.
+
+    The song's artwork is not one of these: album.png is what the game draws on
+    the Songs page, and only the two background names are read as a background.
+    """
+    for name in sorted(files):
+        stem, ext = os.path.splitext(name)
+        if stem.lower() in SONG_VIDEO_NAMES and ext.lower() in STILL_EXT:
             return name
     return ""
 
