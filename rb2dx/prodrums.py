@@ -744,7 +744,7 @@ FIRST_CYMBAL_LANE = 2
 # The block that picks a row, and the word after it, which everything falls out to with the
 # chosen name in hand. Nothing in the game jumps into the middle of the block - it is entered
 # in one place and left in one - which is what makes it safe to write over as a whole. There is
-# room for forty five instructions and the rewrite uses forty four.
+# room for forty five instructions and the rewrite uses all of them.
 #
 # The fingerprint is of the instructions being replaced. It is checked first, so a release this
 # was not worked out against is refused rather than quietly scrambled.
